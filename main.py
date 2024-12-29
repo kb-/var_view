@@ -15,7 +15,7 @@ class VariableViewer(QMainWindow):
 
     def initUI(self):
         self.setWindowTitle("Variable Viewer")
-        self.resize(800, 400)
+        self.resize(1000, 400)
 
         # Central widget
         central_widget = QWidget()
@@ -28,7 +28,7 @@ class VariableViewer(QMainWindow):
 
         # Set model
         self.model = QStandardItemModel()
-        self.model.setHorizontalHeaderLabels(["Variable", "Type", "Value"])
+        self.model.setHorizontalHeaderLabels(["Variable", "Type", "Value", "Memory Usage"])
         self.tree_view.setModel(self.model)
 
         # Connect expand signal for lazy loading
@@ -39,7 +39,7 @@ class VariableViewer(QMainWindow):
 
     def refresh_view(self):
         self.model.clear()
-        self.model.setHorizontalHeaderLabels(["Variable", "Type", "Value"])
+        self.model.setHorizontalHeaderLabels(["Variable", "Type", "Value", "Memory Usage"])
         for name, value in self.variables.items():
             self.add_variable(name, value, self.model.invisibleRootItem())
 
@@ -58,17 +58,21 @@ class VariableViewer(QMainWindow):
             # Format the value nicely
             formatted_value = self.format_value(value)
 
+            # Calculate memory usage
+            memory_usage = self.calculate_memory_usage(value)
+
             # Create items for the columns
             item_name = QStandardItem(name)
             item_type = QStandardItem(value_type)
             item_value = QStandardItem(formatted_value)
+            item_memory = QStandardItem(memory_usage)
 
             # Prevent editing
-            for item in [item_name, item_type, item_value]:
+            for item in [item_name, item_type, item_value, item_memory]:
                 item.setEditable(False)
 
             # Append items to the parent
-            parent_item.appendRow([item_name, item_type, item_value])
+            parent_item.appendRow([item_name, item_type, item_value, item_memory])
 
             # Add a placeholder for lazy loading if the variable can be expanded
             if lazy_load and self.can_expand(value):
@@ -80,8 +84,24 @@ class VariableViewer(QMainWindow):
             parent_item.appendRow([
                 QStandardItem(name),
                 QStandardItem("Error"),
-                QStandardItem(f"<Error: {e}>")
+                QStandardItem(f"<Error: {e}>"),
+                QStandardItem("N/A")
             ])
+
+    def calculate_memory_usage(self, value):
+        """Calculate memory usage of a variable."""
+        try:
+            if isinstance(value, np.ndarray):
+                return f"{value.nbytes / 1024:.2f} KB"
+            elif isinstance(value, torch.Tensor):
+                return f"{value.element_size() * value.numel() / 1024:.2f} KB"
+            else:
+                # Fallback for standard Python objects
+                import sys
+                return f"{sys.getsizeof(value) / 1024:.2f} KB"
+        except Exception as e:
+            logging.error(f"Error calculating memory usage: {e}")
+            return "N/A"
 
     def can_expand(self, value):
         """Check if a variable can be expanded."""
@@ -136,7 +156,8 @@ class VariableViewer(QMainWindow):
             parent_item.appendRow([
                 QStandardItem("Error"),
                 QStandardItem("Error"),
-                QStandardItem(f"<Error: {e}>")
+                QStandardItem(f"<Error: {e}>"),
+                QStandardItem("N/A")
             ])
 
     def add_method(self, name, method, parent_item):
@@ -156,7 +177,8 @@ class VariableViewer(QMainWindow):
             parent_item.appendRow([
                 QStandardItem(name),
                 QStandardItem("Error"),
-                QStandardItem(f"<Error: {e}>")
+                QStandardItem(f"<Error: {e}>"),
+                QStandardItem("N/A")
             ])
 
     def resolve_item_path(self, item):
@@ -232,6 +254,13 @@ if __name__ == "__main__":
         "string_var": "Hello, World!",
         "test_obj": TestClass(),
     }
+    app_variables.update({
+        "huge_tensor": torch.rand(10000, 10000).to(device),
+        "complex_nested_dict": {
+            "level1": {"level2": {"level3": [1, 2, 3, 4, {"deep": "value"}]}}},
+        "cyclic_ref": {}
+    })
+    app_variables["cyclic_ref"]["self"] = app_variables["cyclic_ref"]
 
     app = QApplication(sys.argv)
     viewer = VariableViewer(app_variables)
