@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QApplication, QMainWindow, QTreeView, QVBoxLayout, QWidget, \
-    QMenu
+    QMenu, QHeaderView
 from PyQt6.QtGui import QStandardItemModel, QStandardItem, QAction
 from PyQt6.QtCore import QObject, Qt
 import numpy as np
@@ -19,7 +19,7 @@ class VariableViewer(QMainWindow):
 
     def initUI(self):
         self.setWindowTitle("Variable Viewer")
-        self.resize(800, 960)
+        self.resize(800, 1000)
 
         # Central widget
         central_widget = QWidget()
@@ -33,14 +33,16 @@ class VariableViewer(QMainWindow):
         # Set model
         self.model = QStandardItemModel()
         self.model.setHorizontalHeaderLabels(
-            ["Variable", "Type", "Value", "Memory Usage"])
+            ["Variable", "Type", "Value", "Memory"]
+        )
         self.tree_view.setModel(self.model)
 
-        # Set column widths
-        column_widths = [200, 125, 400,
-                         100]  # Define widths for "Variable", "Type", "Value", "Memory Usage"
-        for i, width in enumerate(column_widths):
-            self.tree_view.setColumnWidth(i, width)
+        # Set resize mode to ResizeToContents for each column
+        header = self.tree_view.header()
+        for i in range(self.model.columnCount()):
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+            # Optionally, set minimum widths to prevent columns from being too narrow
+            header.setMinimumSectionSize(100)  # Adjust as needed
 
         # Connect expand signal for lazy loading
         self.tree_view.expanded.connect(self.handle_expand)
@@ -52,12 +54,22 @@ class VariableViewer(QMainWindow):
         # Load root variables
         self.refresh_view()
 
+        # After loading data, adjust column sizes
+        self.resize_all_columns()
+
+    def resize_all_columns(self):
+        """Resize all columns to fit their contents."""
+        for column in range(self.model.columnCount()):
+            self.tree_view.resizeColumnToContents(column)
+
     def refresh_view(self):
         self.model.clear()
         self.model.setHorizontalHeaderLabels(
             ["Variable", "Type", "Value", "Memory Usage"])
         for name, value in self.variables.items():
             self.add_variable(name, value, self.model.invisibleRootItem())
+        # Adjust column sizes after initial load
+        self.resize_all_columns()
 
     def add_variable(self, name, value, parent_item, lazy_load=True):
         try:
@@ -104,16 +116,27 @@ class VariableViewer(QMainWindow):
             ])
 
     def calculate_memory_usage(self, value):
-        """Calculate memory usage of a variable."""
+        """Calculate memory usage of a variable and format it with appropriate units."""
         try:
+            bytes_size = 0
             if isinstance(value, np.ndarray):
-                return f"{value.nbytes / 1024:.2f} KB"
+                bytes_size = value.nbytes
             elif isinstance(value, torch.Tensor):
-                return f"{value.element_size() * value.numel() / 1024:.2f} KB"
+                bytes_size = value.element_size() * value.numel()
             else:
                 # Fallback for standard Python objects
                 import sys
-                return f"{sys.getsizeof(value) / 1024:.2f} KB"
+                bytes_size = sys.getsizeof(value)
+
+            # Format the size into appropriate units
+            units = ['B', 'KB', 'MB', 'GB', 'TB']
+            for unit in units:
+                if bytes_size < 1024:
+                    if unit == 'B':
+                        return f"{bytes_size} {unit}"  # Avoid decimals for bytes
+                    return f"{bytes_size:.2f} {unit}"
+                bytes_size /= 1024
+            return f"{bytes_size:.2f} PB"  # Fall back for very large sizes
         except Exception as e:
             logging.error(f"Error calculating memory usage: {e}")
             return "N/A"
@@ -137,6 +160,8 @@ class VariableViewer(QMainWindow):
                 value = self.resolve_variable(variable_name, self.variables)
                 if value is not None:
                     self.load_children(item, value)
+                    # After loading children, resize columns to fit new content
+                    self.resize_all_columns()
 
     def load_children(self, parent_item, value):
         """Load and display children of a variable."""
@@ -169,6 +194,9 @@ class VariableViewer(QMainWindow):
                                                        predicate=inspect.ismethod):
                     self.add_method(name, method, parent_item)
 
+            # After loading children, adjust column sizes
+            self.resize_all_columns()
+
         except Exception as e:
             logging.error(f"Error loading children of {parent_item.text()}: {e}")
             parent_item.appendRow([
@@ -189,7 +217,6 @@ class VariableViewer(QMainWindow):
                 item.setEditable(False)
 
             parent_item.appendRow([method_item, method_type, method_value])
-
         except Exception as e:
             logging.error(f"Error adding method {name}: {e}")
             parent_item.appendRow([
@@ -238,9 +265,13 @@ class VariableViewer(QMainWindow):
             elif isinstance(value, (list, tuple, dict)):
                 return f"{type(value).__name__}[{len(value)}]"
             elif isinstance(value, np.ndarray):
-                return f"ndarray{value.shape}: {value.flatten()[:5]}..."  # Sample first 5 elements
+                flattened = value.flatten()
+                sample = flattened[:5] if flattened.size >=5 else flattened
+                return f"ndarray{value.shape}: {sample.tolist()}..."  # Sample first 5 elements
             elif isinstance(value, torch.Tensor):
-                return f"Tensor{tuple(value.shape)}: {value.flatten()[:5]}..."  # Sample first 5 elements
+                flattened = value.flatten().tolist()
+                sample = flattened[:5] if len(flattened) >=5 else flattened
+                return f"Tensor{tuple(value.shape)}: {sample}..."  # Sample first 5 elements
             elif hasattr(value, '__dict__'):  # Objects with attributes
                 return "{...}"
             return str(value)
