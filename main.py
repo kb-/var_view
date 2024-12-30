@@ -10,6 +10,36 @@ import logging
 from variableExporter import VariableExporter
 
 
+class VariableStandardItemModel(QStandardItemModel):
+    def __init__(self, viewer, parent=None):
+        super().__init__(parent)
+        self.viewer = viewer  # Reference to VariableViewer
+
+    def mimeData(self, indexes):
+        mime_data = super().mimeData(indexes)
+        paths = []
+        for index in indexes:
+            if index.column() != 0:
+                # Skip non-variable columns
+                continue
+            item = self.itemFromIndex(index)
+            if item:
+                path = self.viewer.resolve_item_path(item)
+                paths.append(path)
+        if paths:
+            mime_data.setText("\n".join(paths))
+            logging.debug(f"Dragging variable paths: {paths}")
+        return mime_data
+
+    def flags(self, index):
+        if not index.isValid():
+            return Qt.ItemFlag.NoItemFlags
+        if index.column() == 0:
+            return super().flags(index) | Qt.ItemFlag.ItemIsDragEnabled
+        else:
+            return super().flags(index)
+
+
 class VariableViewer(QMainWindow):
     def __init__(self, variables):
         super().__init__()
@@ -30,12 +60,16 @@ class VariableViewer(QMainWindow):
         self.tree_view = QTreeView()
         layout.addWidget(self.tree_view)
 
-        # Set model
-        self.model = QStandardItemModel()
+        # Set custom model
+        self.model = VariableStandardItemModel(self)
         self.model.setHorizontalHeaderLabels(
             ["Variable", "Type", "Value", "Memory"]
         )
         self.tree_view.setModel(self.model)
+
+        # Enable dragging
+        self.tree_view.setDragEnabled(True)
+        self.tree_view.setSelectionMode(QTreeView.SelectionMode.ExtendedSelection)
 
         # Set resize mode to ResizeToContents for each column
         header = self.tree_view.header()
@@ -94,9 +128,10 @@ class VariableViewer(QMainWindow):
             item_value = QStandardItem(formatted_value)
             item_memory = QStandardItem(memory_usage)
 
-            # Prevent editing
+            # Prevent editing and enable dragging
             for item in [item_name, item_type, item_value, item_memory]:
                 item.setEditable(False)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsDragEnabled)
 
             # Append items to the parent
             parent_item.appendRow([item_name, item_type, item_value, item_memory])
@@ -104,6 +139,9 @@ class VariableViewer(QMainWindow):
             # Add a placeholder for lazy loading if the variable can be expanded
             if lazy_load and self.can_expand(value):
                 placeholder = QStandardItem("Loading...")
+                # Enable dragging for the placeholder as well
+                placeholder.setFlags(
+                    placeholder.flags() | Qt.ItemFlag.ItemIsDragEnabled)
                 item_name.appendRow([placeholder])
 
         except Exception as e:
@@ -213,8 +251,10 @@ class VariableViewer(QMainWindow):
             method_type = QStandardItem("Method")
             method_value = QStandardItem(str(method))
 
+            # Prevent editing and enable dragging
             for item in [method_item, method_type, method_value]:
                 item.setEditable(False)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsDragEnabled)
 
             parent_item.appendRow([method_item, method_type, method_value])
         except Exception as e:
@@ -228,11 +268,26 @@ class VariableViewer(QMainWindow):
 
     def resolve_item_path(self, item):
         """Get the full path of the variable represented by the tree item."""
-        path = []
-        while item is not None:
-            path.insert(0, item.text())
-            item = item.parent()
-        return ".".join(path)
+        parts = []
+        current_item = item
+        while current_item is not None:
+            parts.append(current_item.text())
+            current_item = current_item.parent()
+        # Reverse to get path from root to the item
+        parts.reverse()
+
+        # Build the path, handling list indices appropriately
+        path = ""
+        for part in parts:
+            if part.startswith("[") and path:
+                # Append list index directly without a dot
+                path += part
+            else:
+                if path:
+                    path += "." + part
+                else:
+                    path = part
+        return path
 
     def resolve_variable(self, name, root_variables):
         """Resolve a variable name to its value."""
@@ -258,7 +313,8 @@ class VariableViewer(QMainWindow):
             return None
 
     def format_value(self, value):
-        """Format the value for display, truncating long values or sampling large data."""
+        """Format the value for display, truncating long values or sampling large
+        data."""
         try:
             if isinstance(value, str):
                 return value if len(value) <= 50 else value[:47] + "..."
@@ -266,12 +322,14 @@ class VariableViewer(QMainWindow):
                 return f"{type(value).__name__}[{len(value)}]"
             elif isinstance(value, np.ndarray):
                 flattened = value.flatten()
-                sample = flattened[:5] if flattened.size >=5 else flattened
-                return f"ndarray{value.shape}: {sample.tolist()}..."  # Sample first 5 elements
+                # Sample first 5 elements
+                sample = flattened[:5] if flattened.size >= 5 else flattened
+                return f"ndarray{value.shape}: {sample.tolist()}..."
             elif isinstance(value, torch.Tensor):
                 flattened = value.flatten().tolist()
-                sample = flattened[:5] if len(flattened) >=5 else flattened
-                return f"Tensor{tuple(value.shape)}: {sample}..."  # Sample first 5 elements
+                # Sample first 5 elements
+                sample = flattened[:5] if len(flattened) >= 5 else flattened
+                return f"Tensor{tuple(value.shape)}: {sample}..."
             elif hasattr(value, '__dict__'):  # Objects with attributes
                 return "{...}"
             return str(value)
@@ -285,8 +343,22 @@ class VariableViewer(QMainWindow):
             menu = QMenu()
             export_action = QAction("Export", self)
             export_action.triggered.connect(lambda: self.export_variable(index))
+            copy_path_action = QAction("Copy Path", self)
+            copy_path_action.triggered.connect(lambda: self.copy_variable_path(index))
             menu.addAction(export_action)
+            menu.addAction(copy_path_action)
             menu.exec(self.tree_view.viewport().mapToGlobal(position))
+
+    def copy_variable_path(self, index):
+        """Copy the full path of the selected variable to the clipboard."""
+        # Always retrieve the item from column 0 (Variable column)
+        variable_index = self.model.index(index.row(), 0, index.parent())
+        item = self.model.itemFromIndex(variable_index)
+        if item:
+            path = self.resolve_item_path(item)
+            clipboard = QApplication.clipboard()
+            clipboard.setText(path)
+            logging.debug(f"Copied to clipboard: {path}")
 
     def export_variable(self, index):
         item = self.model.itemFromIndex(index)
@@ -297,6 +369,11 @@ class VariableViewer(QMainWindow):
 
 
 if __name__ == "__main__":
+    # Configure logging for debugging purposes
+    logging.basicConfig(level=logging.DEBUG,
+                        format='%(asctime)s - %(levelname)s - %(message)s')
+
+
     # Test data
     class TestClass:
         def __init__(self):
