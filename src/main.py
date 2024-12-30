@@ -8,7 +8,7 @@ import torch
 import sys
 import inspect
 import logging
-from variableExporter import VariableExporter
+from app.variableExporter import VariableExporter
 
 
 class VariableStandardItemModel(QStandardItemModel):

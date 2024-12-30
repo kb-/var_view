@@ -4,7 +4,7 @@ import torch
 import scipy.io as sio
 from pathlib import Path
 
-from variableExporter import VariableExporter
+from src.app.variableExporter import VariableExporter
 
 @pytest.fixture
 def exporter():
