@@ -1,3 +1,4 @@
+# main.py
 from PyQt6.QtWidgets import QApplication, QMainWindow, QTreeView, QVBoxLayout, QWidget, \
     QMenu, QHeaderView
 from PyQt6.QtGui import QStandardItemModel, QStandardItem, QAction
