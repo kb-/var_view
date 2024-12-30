@@ -1,21 +1,25 @@
-from PyQt6.QtWidgets import QApplication, QMainWindow, QTreeView, QVBoxLayout, QWidget
-from PyQt6.QtGui import QStandardItemModel, QStandardItem
-from PyQt6.QtCore import QObject
+from PyQt6.QtWidgets import QApplication, QMainWindow, QTreeView, QVBoxLayout, QWidget, \
+    QMenu
+from PyQt6.QtGui import QStandardItemModel, QStandardItem, QAction
+from PyQt6.QtCore import QObject, Qt
 import numpy as np
 import torch
 import sys
 import inspect
 import logging
+from variableExporter import VariableExporter
+
 
 class VariableViewer(QMainWindow):
     def __init__(self, variables):
         super().__init__()
         self.variables = variables
+        self.exporter = VariableExporter(self)
         self.initUI()
 
     def initUI(self):
         self.setWindowTitle("Variable Viewer")
-        self.resize(1000, 400)
+        self.resize(800, 960)
 
         # Central widget
         central_widget = QWidget()
@@ -28,23 +32,34 @@ class VariableViewer(QMainWindow):
 
         # Set model
         self.model = QStandardItemModel()
-        self.model.setHorizontalHeaderLabels(["Variable", "Type", "Value", "Memory Usage"])
+        self.model.setHorizontalHeaderLabels(
+            ["Variable", "Type", "Value", "Memory Usage"])
         self.tree_view.setModel(self.model)
+
+        # Set column widths
+        column_widths = [200, 125, 400,
+                         100]  # Define widths for "Variable", "Type", "Value", "Memory Usage"
+        for i, width in enumerate(column_widths):
+            self.tree_view.setColumnWidth(i, width)
 
         # Connect expand signal for lazy loading
         self.tree_view.expanded.connect(self.handle_expand)
+
+        # Add context menu for exporting
+        self.tree_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree_view.customContextMenuRequested.connect(self.show_context_menu)
 
         # Load root variables
         self.refresh_view()
 
     def refresh_view(self):
         self.model.clear()
-        self.model.setHorizontalHeaderLabels(["Variable", "Type", "Value", "Memory Usage"])
+        self.model.setHorizontalHeaderLabels(
+            ["Variable", "Type", "Value", "Memory Usage"])
         for name, value in self.variables.items():
             self.add_variable(name, value, self.model.invisibleRootItem())
 
     def add_variable(self, name, value, parent_item, lazy_load=True):
-        """Add a variable as a tree item with optional lazy loading."""
         try:
             # Determine the type
             value_type = type(value).__name__
@@ -105,7 +120,8 @@ class VariableViewer(QMainWindow):
 
     def can_expand(self, value):
         """Check if a variable can be expanded."""
-        return isinstance(value, (list, tuple, dict, QObject)) or hasattr(value, '__dict__')
+        return isinstance(value, (list, tuple, dict, QObject)) or hasattr(value,
+                                                                          '__dict__')
 
     def handle_expand(self, index):
         """Handle lazy loading when a tree item is expanded."""
@@ -142,13 +158,15 @@ class VariableViewer(QMainWindow):
                                 self.add_variable(attr, attr_value, parent_item)
                         except Exception as e:
                             logging.error(f"Error accessing attribute {attr}: {e}")
-                            self.add_variable(attr, f"<Error: {e}>", parent_item, lazy_load=False)
+                            self.add_variable(attr, f"<Error: {e}>", parent_item,
+                                              lazy_load=False)
             elif hasattr(value, '__dict__'):
                 for attr_name, attr_value in vars(value).items():
                     self.add_variable(attr_name, attr_value, parent_item)
 
                 # Add methods separately for better organization
-                for name, method in inspect.getmembers(value, predicate=inspect.ismethod):
+                for name, method in inspect.getmembers(value,
+                                                       predicate=inspect.ismethod):
                     self.add_method(name, method, parent_item)
 
         except Exception as e:
@@ -230,6 +248,22 @@ class VariableViewer(QMainWindow):
             logging.error(f"Error formatting value: {e}")
             return "<Error>"
 
+    def show_context_menu(self, position):
+        index = self.tree_view.indexAt(position)
+        if index.isValid():
+            menu = QMenu()
+            export_action = QAction("Export", self)
+            export_action.triggered.connect(lambda: self.export_variable(index))
+            menu.addAction(export_action)
+            menu.exec(self.tree_view.viewport().mapToGlobal(position))
+
+    def export_variable(self, index):
+        item = self.model.itemFromIndex(index)
+        variable_name = item.text()
+        value = self.resolve_variable(variable_name, self.variables)
+        if value is not None:
+            self.exporter.export_variable(variable_name, value)
+
 
 if __name__ == "__main__":
     # Test data
@@ -243,6 +277,7 @@ if __name__ == "__main__":
 
         def method2(self):
             return "Method 2"
+
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # Test data

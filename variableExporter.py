@@ -15,13 +15,11 @@ class VariableExporter:
         """Export a variable to the selected file format."""
         try:
             # Open file save dialog to let the user choose format
-            options = QFileDialog.Options()
             file_path, selected_filter = QFileDialog.getSaveFileName(
                 self.parent,
                 f"Export Variable '{name}'",
-                f"{name}.",
-                "NumPy Array (*.npy);;CSV (*.csv);;HDF5 (*.h5);;MATLAB File (*.mat);;PNG Image (*.png);;Text File (*.txt)",
-                options=options
+                f"{name}",
+                "NumPy Array (*.npy);;CSV (*.csv);;HDF5 (*.h5);;MATLAB File (*.mat);;PNG Image (*.png);;Text File (*.txt)"
             )
 
             if not file_path:  # User canceled
@@ -30,22 +28,25 @@ class VariableExporter:
             _, ext = os.path.splitext(file_path)
             ext = ext.lower()
 
+            # Attempt to export based on the chosen file format
             if ext == ".npy":
                 self.save_as_npy(value, file_path)
             elif ext == ".csv":
                 self.save_as_csv(value, file_path)
             elif ext == ".h5":
-                self.save_as_h5(value, file_path)
+                self.save_as_h5(name, value, file_path)
             elif ext == ".mat":
-                self.save_as_mat(value, file_path)
+                self.save_as_mat(name, value, file_path)
             elif ext == ".png":
                 self.save_as_png(value, file_path)
             elif ext == ".txt":
-                self.save_as_txt(value, file_path)
+                self.save_as_txt(name, value, file_path)
             else:
-                QMessageBox.warning(self.parent, "Export Error", f"Unsupported format: {ext}")
+                QMessageBox.warning(self.parent, "Export Error",
+                                    f"Unsupported format: {ext}")
         except Exception as e:
-            QMessageBox.critical(self.parent, "Export Error", f"Failed to export {name}: {str(e)}")
+            QMessageBox.critical(self.parent, "Export Error",
+                                 f"Failed to export {name}: {str(e)}")
 
     def save_as_npy(self, value, file_path):
         if isinstance(value, np.ndarray):
@@ -63,22 +64,27 @@ class VariableExporter:
         else:
             raise TypeError("Unsupported type for CSV export.")
 
-    def save_as_h5(self, value, file_path):
+    def save_as_h5(self, name, value, file_path):
         with h5py.File(file_path, "w") as f:
             if isinstance(value, np.ndarray):
-                f.create_dataset("data", data=value)
+                f.create_dataset(name, data=value)
             elif torch.is_tensor(value):
-                f.create_dataset("data", data=value.cpu().numpy())
+                f.create_dataset(name, data=value.cpu().numpy())
             else:
-                raise TypeError("Unsupported type for HDF5 export.")
+                f.attrs[name] = str(value)  # Save unsupported types as string metadata
 
-    def save_as_mat(self, value, file_path):
-        if isinstance(value, np.ndarray):
-            sio.savemat(file_path, {"data": value})
-        elif torch.is_tensor(value):
-            sio.savemat(file_path, {"data": value.cpu().numpy()})
-        else:
-            raise TypeError("Unsupported type for MATLAB export.")
+    def save_as_mat(self, name, value, file_path):
+        """
+        Save the given variable to a MATLAB file while preserving its name.
+        """
+        if isinstance(value, torch.Tensor):
+            value = value.cpu().numpy()  # Convert PyTorch tensor to NumPy array
+
+        try:
+            # Save the variable using its name
+            sio.savemat(file_path, {name: value})
+        except Exception as e:
+            raise ValueError(f"Failed to save {name} to .mat: {e}")
 
     def save_as_png(self, value, file_path):
         if isinstance(value, np.ndarray):
@@ -112,7 +118,7 @@ class VariableExporter:
         else:
             raise TypeError("Unsupported type for PNG export.")
 
-    def save_as_txt(self, value, file_path):
+    def save_as_txt(self, name, value, file_path):
         with open(file_path, "w") as f:
             if isinstance(value, (list, tuple, dict)):
                 f.write(str(value))  # Export structured data as string
@@ -124,4 +130,4 @@ class VariableExporter:
                 f.write(value)  # Write strings directly
             else:
                 # For unsupported types, export their string representation
-                f.write(f"# Exported as string representation\n{str(value)}")
+                f.write(f"# Exported variable: {name}\n{str(value)}")

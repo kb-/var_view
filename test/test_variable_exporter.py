@@ -1,16 +1,14 @@
 import pytest
 import numpy as np
 import torch
-from PIL import Image
+import scipy.io as sio
 from pathlib import Path
 
 from variableExporter import VariableExporter
 
-
 @pytest.fixture
 def exporter():
     return VariableExporter()
-
 
 @pytest.fixture
 def sample_data():
@@ -22,11 +20,9 @@ def sample_data():
         "dict_var": {"key1": 1, "key2": "value"},
     }
 
-
 @pytest.fixture
 def tmp_file(tmp_path):
     return tmp_path / "test_file"
-
 
 def test_save_as_npy(exporter, tmp_file, sample_data):
     file_path = str(tmp_file) + ".npy"
@@ -36,7 +32,6 @@ def test_save_as_npy(exporter, tmp_file, sample_data):
     loaded = np.load(file_path)
     assert np.allclose(loaded, sample_data["numpy_array"])
 
-
 def test_save_as_csv(exporter, tmp_file, sample_data):
     file_path = str(tmp_file) + ".csv"
     exporter.save_as_csv(sample_data["numpy_array"], file_path)
@@ -45,90 +40,96 @@ def test_save_as_csv(exporter, tmp_file, sample_data):
     loaded = np.loadtxt(file_path, delimiter=",")
     assert np.allclose(loaded, sample_data["numpy_array"])
 
-
 def test_save_as_h5(exporter, tmp_file, sample_data):
     file_path = str(tmp_file) + ".h5"
-    exporter.save_as_h5(sample_data["numpy_array"], file_path)
+    exporter.save_as_h5("numpy_array", sample_data["numpy_array"], file_path)
 
-    import h5py
     assert Path(file_path).exists()
+    import h5py
     with h5py.File(file_path, "r") as f:
-        loaded = f["data"][:]
+        loaded = f["numpy_array"][:]
         assert np.allclose(loaded, sample_data["numpy_array"])
 
+def test_save_as_mat_all_types(exporter, tmp_file, sample_data):
+    for variable_name, value in sample_data.items():
+        file_path = tmp_file / f"{variable_name}.mat"
+        file_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
 
-def test_save_as_mat(exporter, tmp_file, sample_data):
-    file_path = str(tmp_file) + ".mat"
-    exporter.save_as_mat(sample_data["numpy_array"], file_path)
+        # Export the variable
+        exporter.save_as_mat(variable_name, value, str(file_path))
 
-    import scipy.io as sio
-    assert Path(file_path).exists()
-    loaded = sio.loadmat(file_path)["data"]
-    assert np.allclose(loaded, sample_data["numpy_array"])
+        # Validate the exported .mat file
+        assert file_path.exists(), f"File {file_path} was not created."
+
+        # Load the .mat file and check the contents
+        loaded = sio.loadmat(file_path)
+
+        # Check that the variable name is preserved
+        assert variable_name in loaded, f"Variable '{variable_name}' not found in .mat file."
+
+        # Validate the data
+        if isinstance(value, np.ndarray):
+            assert np.allclose(loaded[variable_name], value)
+        elif torch.is_tensor(value):
+            assert np.allclose(loaded[variable_name], value.cpu().numpy())
+        elif isinstance(value, (list, tuple)):
+            assert loaded[variable_name].tolist() == list(value)
+        elif isinstance(value, str):
+            assert loaded[variable_name] == value
+        elif isinstance(value, (int, float)):
+            assert loaded[variable_name].item() == value
 
 
 def test_save_as_png(exporter, tmp_file, sample_data):
-    from pathlib import Path
-    import numpy as np
-    from PIL import Image
-
     file_path = str(tmp_file) + ".png"
-    array = sample_data["numpy_array"].astype(np.float32)  # Float32 for testing scaling
+    array = sample_data["numpy_array"].astype(np.float32)
 
-    # Save the array as PNG
     exporter.save_as_png(array, file_path)
-
-    # Ensure the file was created
     assert Path(file_path).exists()
 
-    # Load the saved PNG and compare
+    from PIL import Image
     with Image.open(file_path) as img:
         loaded = np.array(img)
-
-    # Recreate the expected normalized array
-    array_min = array.min()
-    array_max = array.max()
-    if array_min == array_max:
-        expected = np.zeros_like(array, dtype=np.uint8)
-        expected[:] = 255 if array_min > 0 else 0
-    else:
-        expected = ((array - array_min) / (array_max - array_min) * 255).astype(
-            np.uint8)
-
-    # Assert exact equality
-    assert np.array_equal(loaded,
-                          expected), f"Mismatch between saved and loaded PNG data."
-
+        expected = ((array - array.min()) / (array.max() - array.min()) * 255).astype(np.uint8)
+        assert np.array_equal(loaded, expected)
 
 def test_save_as_txt(exporter, tmp_file, sample_data):
     file_path = str(tmp_file) + ".txt"
-    exporter.save_as_txt(sample_data["string_var"], file_path)
+    exporter.save_as_txt("string_var", sample_data["string_var"], file_path)
 
     assert Path(file_path).exists()
     with open(file_path, "r") as f:
         loaded = f.read()
         assert loaded == sample_data["string_var"]
 
-
 def test_save_as_txt_list(exporter, tmp_file, sample_data):
     file_path = str(tmp_file) + ".txt"
-    exporter.save_as_txt(sample_data["nested_list"], file_path)
+    exporter.save_as_txt("nested_list", sample_data["nested_list"], file_path)
 
     assert Path(file_path).exists()
     with open(file_path, "r") as f:
-        loaded = eval(f.read())  # Use eval carefully for trusted content
+        loaded = eval(f.read())
         assert loaded == sample_data["nested_list"]
 
 
 def test_export_unsupported_type(exporter, tmp_file):
     file_path = str(tmp_file) + ".txt"
-    exporter.save_as_txt(set([1, 2, 3]), file_path)
+    variable_name = "unsupported_type"
+    unsupported_value = set([1, 2, 3])
+
+    # Export the unsupported type
+    exporter.save_as_txt(variable_name, unsupported_value, file_path)
 
     assert Path(file_path).exists()
     with open(file_path, "r") as f:
         loaded = f.read()
-        assert "Exported as string representation" in loaded
-        assert "{1, 2, 3}" in loaded  # Check the set's string representation
+
+    # Check the exported content
+    expected_header = f"# Exported variable: {variable_name}"
+    expected_content = str(unsupported_value)
+    assert loaded.startswith(
+        expected_header), f"Expected header '{expected_header}' not found in exported content."
+    assert expected_content in loaded, f"Expected content '{expected_content}' not found in exported content."
 
 
 def test_torch_tensor_as_npy(exporter, tmp_file, sample_data):
