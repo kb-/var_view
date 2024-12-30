@@ -19,7 +19,7 @@ class VariableViewer(QMainWindow):
 
     def initUI(self):
         self.setWindowTitle("Variable Viewer")
-        self.resize(800, 1000)
+        self.resize(1040, 800)
 
         # Central widget
         central_widget = QWidget()
@@ -65,7 +65,7 @@ class VariableViewer(QMainWindow):
     def refresh_view(self):
         self.model.clear()
         self.model.setHorizontalHeaderLabels(
-            ["Variable", "Type", "Value", "Memory Usage"])
+            ["Variable", "Type", "Value", "Memory"])
         for name, value in self.variables.items():
             self.add_variable(name, value, self.model.invisibleRootItem())
         # Adjust column sizes after initial load
