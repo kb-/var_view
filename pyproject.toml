@@ -3,7 +3,7 @@ name = "var-view"
 version = "0.1.0"
 description = "A PyQt-based variable viewer for exploring Python objects interactively."
 readme = "README.md"
-requires-python = ">=3.11.9"
+requires-python = ">=3.11"
 dependencies = [
     "PyQt6>=6.5.1",
     "h5py>=3.12.1",
