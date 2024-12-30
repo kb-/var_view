@@ -15,6 +15,9 @@ class VariableStandardItemModel(QStandardItemModel):
         super().__init__(parent)
         self.viewer = viewer  # Reference to VariableViewer
 
+    def supportedDragActions(self):
+        return Qt.DropAction.CopyAction
+
     def mimeData(self, indexes):
         mime_data = super().mimeData(indexes)
         paths = []
@@ -69,6 +72,7 @@ class VariableViewer(QMainWindow):
 
         # Enable dragging
         self.tree_view.setDragEnabled(True)
+        # self.tree_view.setDragDropMode(QTreeView.DragDropMode.DragOnly)
         self.tree_view.setSelectionMode(QTreeView.SelectionMode.ExtendedSelection)
 
         # Set resize mode to ResizeToContents for each column
