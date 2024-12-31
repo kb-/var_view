@@ -1,6 +1,6 @@
 # main.py
 from PyQt6.QtWidgets import QApplication, QMainWindow, QTreeView, QVBoxLayout, QWidget, \
-    QMenu, QHeaderView
+    QMenu, QHeaderView, QMessageBox
 from PyQt6.QtGui import QStandardItemModel, QStandardItem, QAction
 from PyQt6.QtCore import QObject, Qt
 import numpy as np
@@ -73,20 +73,19 @@ class VariableViewer(QMainWindow):
 
         # Enable dragging
         self.tree_view.setDragEnabled(True)
-        # self.tree_view.setDragDropMode(QTreeView.DragDropMode.DragOnly)
+        self.tree_view.setDragDropMode(QTreeView.DragDropMode.DragOnly)
         self.tree_view.setSelectionMode(QTreeView.SelectionMode.ExtendedSelection)
 
         # Set resize mode to ResizeToContents for each column
         header = self.tree_view.header()
         for i in range(self.model.columnCount()):
             header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
-            # Optionally, set minimum widths to prevent columns from being too narrow
             header.setMinimumSectionSize(100)  # Adjust as needed
 
         # Connect expand signal for lazy loading
         self.tree_view.expanded.connect(self.handle_expand)
 
-        # Add context menu for exporting
+        # Add context menu for exporting and updating
         self.tree_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree_view.customContextMenuRequested.connect(self.show_context_menu)
 
@@ -102,6 +101,10 @@ class VariableViewer(QMainWindow):
             self.tree_view.resizeColumnToContents(column)
 
     def refresh_view(self):
+        """
+        Refresh the entire view by clearing and repopulating the model.
+        This captures the current state of variables.
+        """
         self.model.clear()
         self.model.setHorizontalHeaderLabels(
             ["Variable", "Type", "Value", "Memory"])
@@ -133,10 +136,13 @@ class VariableViewer(QMainWindow):
             item_value = QStandardItem(formatted_value)
             item_memory = QStandardItem(memory_usage)
 
-            # Prevent editing and enable dragging
-            for item in [item_name, item_type, item_value, item_memory]:
-                item.setEditable(False)
-                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsDragEnabled)
+            # Prevent editing and enable dragging only for Variable column
+            item_name.setEditable(False)
+            item_name.setFlags(item_name.flags() | Qt.ItemFlag.ItemIsDragEnabled)
+            item_type.setEditable(False)
+            item_value.setEditable(False)
+            item_memory.setEditable(False)
+            # Only Variable column is draggable as per flags method
 
             # Append items to the parent
             parent_item.appendRow([item_name, item_type, item_value, item_memory])
@@ -144,13 +150,13 @@ class VariableViewer(QMainWindow):
             # Add a placeholder for lazy loading if the variable can be expanded
             if lazy_load and self.can_expand(value):
                 placeholder = QStandardItem("Loading...")
-                # Enable dragging for the placeholder as well
-                placeholder.setFlags(
-                    placeholder.flags() | Qt.ItemFlag.ItemIsDragEnabled)
-                item_name.appendRow([placeholder])
-
+                # Placeholder should not be draggable
+                placeholder.setEditable(False)
+                # Append a full row with placeholder and empty items for other columns
+                item_name.appendRow(
+                    [placeholder, QStandardItem(), QStandardItem(), QStandardItem()])
         except Exception as e:
-            logging.error(f"Error adding variable {name}: {e}")
+            logging.error(f"Error adding variable '{name}': {e}")
             parent_item.appendRow([
                 QStandardItem(name),
                 QStandardItem("Error"),
@@ -186,21 +192,20 @@ class VariableViewer(QMainWindow):
 
     def can_expand(self, value):
         """Check if a variable can be expanded."""
-        return isinstance(value, (list, tuple, dict, QObject)) or hasattr(value,
-                                                                          '__dict__')
+        return isinstance(value, (list, tuple, dict, QObject)) or hasattr(value, '__dict__')
 
     def handle_expand(self, index):
         """Handle lazy loading when a tree item is expanded."""
         item = self.model.itemFromIndex(index)
         if item.hasChildren():
             # Get the first child
-            placeholder = item.child(0)
+            placeholder = item.child(0, 0)
             if placeholder.text() == "Loading...":
                 # Remove the placeholder
                 item.removeRow(0)
                 # Resolve the variable and load its children
-                variable_name = self.resolve_item_path(item)
-                value = self.resolve_variable(variable_name, self.variables)
+                path = self.resolve_item_path(item)
+                value = self.resolve_variable(path, self.variables)
                 if value is not None:
                     self.load_children(item, value)
                     # After loading children, resize columns to fit new content
@@ -225,7 +230,7 @@ class VariableViewer(QMainWindow):
                             else:
                                 self.add_variable(attr, attr_value, parent_item)
                         except Exception as e:
-                            logging.error(f"Error accessing attribute {attr}: {e}")
+                            logging.error(f"Error accessing attribute '{attr}': {e}")
                             self.add_variable(attr, f"<Error: {e}>", parent_item,
                                               lazy_load=False)
             elif hasattr(value, '__dict__'):
@@ -241,7 +246,7 @@ class VariableViewer(QMainWindow):
             self.resize_all_columns()
 
         except Exception as e:
-            logging.error(f"Error loading children of {parent_item.text()}: {e}")
+            logging.error(f"Error loading children of '{parent_item.text()}': {e}")
             parent_item.appendRow([
                 QStandardItem("Error"),
                 QStandardItem("Error"),
@@ -261,9 +266,10 @@ class VariableViewer(QMainWindow):
                 item.setEditable(False)
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsDragEnabled)
 
-            parent_item.appendRow([method_item, method_type, method_value])
+            # Append an empty item for the Memory column to maintain consistency
+            parent_item.appendRow([method_item, method_type, method_value, QStandardItem()])
         except Exception as e:
-            logging.error(f"Error adding method {name}: {e}")
+            logging.error(f"Error adding method '{name}': {e}")
             parent_item.appendRow([
                 QStandardItem(name),
                 QStandardItem("Error"),
@@ -314,12 +320,11 @@ class VariableViewer(QMainWindow):
                     return None
             return value
         except Exception as e:
-            logging.error(f"Error resolving variable {name}: {e}")
+            logging.error(f"Error resolving variable '{name}': {e}")
             return None
 
     def format_value(self, value):
-        """Format the value for display, truncating long values or sampling large
-        data."""
+        """Format the value for display, always sampling the first five elements of large data."""
         try:
             if isinstance(value, str):
                 return value if len(value) <= 50 else value[:47] + "..."
@@ -343,34 +348,121 @@ class VariableViewer(QMainWindow):
             return "<Error>"
 
     def show_context_menu(self, position):
-        index = self.tree_view.indexAt(position)
-        if index.isValid():
-            menu = QMenu()
-            export_action = QAction("Export", self)
-            export_action.triggered.connect(lambda: self.export_variable(index))
-            copy_path_action = QAction("Copy Path", self)
-            copy_path_action.triggered.connect(lambda: self.copy_variable_path(index))
-            menu.addAction(export_action)
-            menu.addAction(copy_path_action)
-            menu.exec(self.tree_view.viewport().mapToGlobal(position))
+        indexes = self.tree_view.selectedIndexes()
+        if not indexes:
+            return  # No selection, do nothing
 
-    def copy_variable_path(self, index):
-        """Copy the full path of the selected variable to the clipboard."""
-        # Always retrieve the item from column 0 (Variable column)
-        variable_index = self.model.index(index.row(), 0, index.parent())
-        item = self.model.itemFromIndex(variable_index)
-        if item:
-            path = self.resolve_item_path(item)
-            clipboard = QApplication.clipboard()
-            clipboard.setText(path)
-            logging.debug(f"Copied to clipboard: {path}")
+        menu = QMenu()
+
+        # Determine selected variables (only unique rows in the Variable column)
+        selected_rows = set()
+        for index in indexes:
+            if index.column() == 0:
+                selected_rows.add(index.row())
+
+        if len(selected_rows) == 1:
+            # Single selection: Enable Export
+            export_action = QAction("Export", self)
+            export_action.triggered.connect(lambda: self.export_variable(indexes[0]))
+            menu.addAction(export_action)
+        elif len(selected_rows) > 1:
+            # Multiple selections: Enable Export Selected
+            export_selected_action = QAction("Export Selected", self)
+            export_selected_action.triggered.connect(lambda: self.export_selected_variables(indexes))
+            menu.addAction(export_selected_action)
+        else:
+            # No valid selections for export
+            export_action = QAction("Export", self)
+            export_action.setEnabled(False)
+            menu.addAction(export_action)
+
+        # Add Update action (supports multiple selections)
+        update_action = QAction("Update", self)
+        update_action.triggered.connect(lambda: self.update_selected_variables(indexes))
+        menu.addAction(update_action)
+
+        # Add Copy Path action (supports multiple selections)
+        copy_path_action = QAction("Copy Path", self)
+        copy_path_action.triggered.connect(lambda: self.copy_variable_path(indexes))
+        menu.addAction(copy_path_action)
+
+        menu.exec(self.tree_view.viewport().mapToGlobal(position))
 
     def export_variable(self, index):
+        """Export a single selected variable."""
         item = self.model.itemFromIndex(index)
         variable_name = item.text()
         value = self.resolve_variable(variable_name, self.variables)
         if value is not None:
             self.exporter.export_variable(variable_name, value)
+        else:
+            QMessageBox.warning(self, "Export Warning",
+                                f"Variable '{variable_name}' could not be resolved and was not exported.")
+
+    def export_selected_variables(self, indexes):
+        """Export multiple selected variables."""
+        variables_to_export = {}
+        for index in indexes:
+            if index.column() != 0:
+                continue  # Only process Variable column
+            item = self.model.itemFromIndex(index)
+            if item:
+                path = self.resolve_item_path(item)
+                value = self.resolve_variable(path, self.variables)
+                if value is not None:
+                    variables_to_export[path] = value
+
+        if variables_to_export:
+            self.exporter.export_variables(variables_to_export)
+        else:
+            QMessageBox.warning(self, "Export Warning",
+                                "No valid variables selected for export.")
+
+    def update_selected_variables(self, indexes):
+        """
+        Update the selected variables by re-fetching their current values.
+        Supports multiple selections.
+        """
+        # Extract unique rows (variables) from selected indexes
+        selected_rows = set()
+        for index in indexes:
+            if index.column() == 0:  # Variable column
+                selected_rows.add(index.row())
+
+        # Iterate over unique selected rows
+        for row in selected_rows:
+            item = self.model.item(row, 0)  # Get the Variable column item
+            if item:
+                path = self.resolve_item_path(item)
+                current_value = self.resolve_variable(path, self.variables)
+                if current_value is not None:
+                    # Update Type, Value, and Memory columns only for root nodes
+                    if item.parent() is None:
+                        self.model.item(row, 1).setText(type(current_value).__name__)
+                        formatted_value = self.format_value(current_value)
+                        self.model.item(row, 2).setText(formatted_value)
+                        memory_usage = self.calculate_memory_usage(current_value)
+                        self.model.item(row, 3).setText(memory_usage)
+                else:
+                    # Handle cases where the variable could not be resolved
+                    self.model.item(row, 2).setText("<Unavailable>")
+                    self.model.item(row, 3).setText("N/A")
+
+    def copy_variable_path(self, indexes):
+        """Copy the full path of the selected variables to the clipboard."""
+        paths = []
+        for index in indexes:
+            if index.column() != 0:
+                continue  # Only process Variable column
+            item = self.model.itemFromIndex(index)
+            if item:
+                path = self.resolve_item_path(item)
+                paths.append(path)
+
+        if paths:
+            clipboard = QApplication.clipboard()
+            clipboard.setText("\n".join(paths))
+            logging.debug(f"Copied to clipboard: {paths}")
 
 
 if __name__ == "__main__":
@@ -400,6 +492,7 @@ if __name__ == "__main__":
         "numpy_array": np.random.rand(100, 100),
         "torch_tensor": torch.rand(10, 10).to(device),
         "string_var": "Hello, World!",
+        "update_me": "Right menu click update test",
         "test_obj": TestClass(),
     }
     app_variables.update({
@@ -413,4 +506,5 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     viewer = VariableViewer(app_variables)
     viewer.show()
+    app_variables["update_me"] = "Updated String"
     sys.exit(app.exec())
