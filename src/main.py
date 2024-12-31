@@ -2,6 +2,7 @@
 # TODO: memory and lazy loading to improve. Wrong size on root. Display grayed with + sign before fully loaded?
 # TODO: fix update. Doesn't work for SVA ROI
 # TODO: tree doesn't display child object content in list (SVA ROIs)
+# TODO: fix "Variable '{variable_name}' could not be resolved and was not exported."when trying to export a child of globals (tried on a frame returned by SVA reader)
 from PyQt6.QtWidgets import QApplication, QMainWindow, QTreeView, QVBoxLayout, QWidget, \
     QMenu, QHeaderView, QMessageBox
 from PyQt6.QtGui import QStandardItemModel, QStandardItem, QAction
