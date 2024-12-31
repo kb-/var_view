@@ -192,7 +192,8 @@ class VariableViewer(QMainWindow):
 
     def can_expand(self, value):
         """Check if a variable can be expanded."""
-        return isinstance(value, (list, tuple, dict, QObject)) or hasattr(value, '__dict__')
+        return isinstance(value, (list, tuple, dict, QObject)) or hasattr(value,
+                                                                          '__dict__')
 
     def handle_expand(self, index):
         """Handle lazy loading when a tree item is expanded."""
@@ -267,7 +268,8 @@ class VariableViewer(QMainWindow):
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsDragEnabled)
 
             # Append an empty item for the Memory column to maintain consistency
-            parent_item.appendRow([method_item, method_type, method_value, QStandardItem()])
+            parent_item.appendRow(
+                [method_item, method_type, method_value, QStandardItem()])
         except Exception as e:
             logging.error(f"Error adding method '{name}': {e}")
             parent_item.appendRow([
@@ -368,7 +370,8 @@ class VariableViewer(QMainWindow):
         elif len(selected_rows) > 1:
             # Multiple selections: Enable Export Selected
             export_selected_action = QAction("Export Selected", self)
-            export_selected_action.triggered.connect(lambda: self.export_selected_variables(indexes))
+            export_selected_action.triggered.connect(
+                lambda: self.export_selected_variables(indexes))
             menu.addAction(export_selected_action)
         else:
             # No valid selections for export
@@ -471,20 +474,54 @@ if __name__ == "__main__":
                         format='%(asctime)s - %(levelname)s - %(message)s')
 
 
-    # Test data
-    class TestClass:
-        def __init__(self):
-            self.attr1 = "Test Attribute"
-            self.attr2 = 42
+    # Enhanced Test data with custom objects
+    class Engine:
+        def __init__(self, horsepower, type_):
+            self.horsepower = horsepower
+            self.type = type_
 
-        def method1(self):
-            return "Method 1"
+        def start(self):
+            return "Engine started."
 
-        def method2(self):
-            return "Method 2"
 
+    class Car:
+        def __init__(self, make, model, engine):
+            self.make = make
+            self.model = model
+            self.engine = engine
+            self.owner = None  # To be set later, creating a cyclic reference
+
+        def drive(self):
+            return f"Driving the {self.make} {self.model}."
+
+        def set_owner(self, owner):
+            self.owner = owner
+
+
+    class Person:
+        def __init__(self, name, age, car=None):
+            self.name = name
+            self.age = age
+            self.car = car
+
+        def greet(self):
+            return f"Hello, my name is {self.name}."
+
+        def buy_car(self, car):
+            self.car = car
+            car.set_owner(self)
+
+
+    # Instantiate custom objects
+    engine_v8 = Engine(450, "V8")
+    car_ferrari = Car("Ferrari", "488 Spider", engine_v8)
+    person_john = Person("John Doe", 30)
+
+    # Establish cyclic reference
+    person_john.buy_car(car_ferrari)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     # Test data
     app_variables = {
         "list_var": [1, 2, 3, 4, 5],
@@ -492,11 +529,10 @@ if __name__ == "__main__":
         "numpy_array": np.random.rand(100, 100),
         "torch_tensor": torch.rand(10, 10).to(device),
         "string_var": "Hello, World!",
-        "update_me": "Right menu click update test",
-        "test_obj": TestClass(),
+        "test_obj": person_john,  # Custom object
     }
     app_variables.update({
-        "huge_tensor": torch.rand(10000, 10000).to(device),
+        "huge_tensor": torch.rand(10000, 10000),
         "complex_nested_dict": {
             "level1": {"level2": {"level3": [1, 2, 3, 4, {"deep": "value"}]}}},
         "cyclic_ref": {}
@@ -506,5 +542,10 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     viewer = VariableViewer(app_variables)
     viewer.show()
-    app_variables["update_me"] = "Updated String"
+    # Modify variables after viewer is shown
+    app_variables["string_var"] = "Updated String"
+    app_variables["nested_dict"]["a"] = "updated"
+    # Modify custom object
+    person_john.age = 31
+    person_john.car.engine.horsepower = 500
     sys.exit(app.exec())
