@@ -1,11 +1,11 @@
-# variableExporter.py
 import numpy as np
 import torch
 import h5py
-import scipy.io as sio
+import hdf5storage
 from PIL import Image
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 import os
+import pickle
 
 
 class VariableExporter:
@@ -99,9 +99,14 @@ class VariableExporter:
                 npz_dict[name] = value
             elif torch.is_tensor(value):
                 npz_dict[name] = value.cpu().numpy()
+            elif isinstance(value, (set, frozenset)):
+                npz_dict[name] = list(value)
+            elif hasattr(value, "__dict__"):
+                npz_dict[name] = value.__dict__
+            elif isinstance(value, (str, bytes, bytearray, int, float, bool, complex, list, tuple, dict)):
+                npz_dict[name] = value
             else:
-                # Convert unsupported types to strings
-                npz_dict[name] = str(value)
+                npz_dict[name] = str(value)  # Convert unsupported types to strings
         np.savez_compressed(file_path, **npz_dict)
 
     def save_as_csv(self, value, file_path):
@@ -120,6 +125,15 @@ class VariableExporter:
                 f.create_dataset(name, data=value)
             elif torch.is_tensor(value):
                 f.create_dataset(name, data=value.cpu().numpy())
+            elif isinstance(value, (str, bytes, bytearray)):
+                # Save strings as datasets
+                f.create_dataset(name, data=np.string_(value))
+            elif isinstance(value, (int, float, bool, complex)):
+                f.create_dataset(name, data=value)
+            elif isinstance(value, (list, tuple, dict)):
+                # Save lists and dicts as HDF5 references or convert to object arrays
+                # For simplicity, convert to object arrays
+                f.create_dataset(name, data=np.array(value, dtype=object))
             else:
                 f.attrs[name] = str(value)  # Save unsupported types as string metadata
 
@@ -131,32 +145,58 @@ class VariableExporter:
                     f.create_dataset(name, data=value)
                 elif torch.is_tensor(value):
                     f.create_dataset(name, data=value.cpu().numpy())
+                elif isinstance(value, (str, bytes, bytearray)):
+                    # Save strings as datasets
+                    f.create_dataset(name, data=np.string_(value))
+                elif isinstance(value, (int, float, bool, complex)):
+                    f.create_dataset(name, data=value)
+                elif isinstance(value, (list, tuple, dict)):
+                    # Save lists and dicts as HDF5 references or convert to object arrays
+                    # For simplicity, convert to object arrays
+                    f.create_dataset(name, data=np.array(value, dtype=object))
                 else:
                     f.attrs[name] = str(value)  # Save unsupported types as string metadata
 
     def save_as_mat_single(self, name, value, file_path):
-        """Save a single variable into a .mat file."""
+        """Save a single variable into a .mat file using hdf5storage."""
         if isinstance(value, torch.Tensor):
             value = value.cpu().numpy()  # Convert PyTorch tensor to NumPy array
 
+        # Handle specific unsupported types
+        if isinstance(value, (set, frozenset)):
+            value = list(value)  # Convert sets to lists
+        elif hasattr(value, "__dict__"):
+            value = value.__dict__  # Convert custom objects to dictionaries
+
+        # Check if the type is supported by hdf5storage
+        if not isinstance(value, (np.ndarray, list, tuple, dict, str, bytes, bytearray, int, float, bool, complex)):
+            value = str(value)  # Convert unsupported types to strings
+
         try:
-            # Save the variable using its name
-            sio.savemat(file_path, {name: value})
+            # Save the variable using its name with hdf5storage
+            hdf5storage.savemat(file_path, {name: value}, matlab_compatible=True)
         except Exception as e:
             raise ValueError(f"Failed to save '{name}' to .mat: {e}")
 
     def save_as_mat_batch(self, variables_dict, file_path):
-        """Save multiple variables into a single .mat file."""
+        """Save multiple variables into a single .mat file using hdf5storage."""
         mat_dict = {}
         for name, value in variables_dict.items():
             if isinstance(value, torch.Tensor):
-                mat_dict[name] = value.cpu().numpy()
-            elif isinstance(value, np.ndarray):
-                mat_dict[name] = value
-            else:
-                mat_dict[name] = value
+                value = value.cpu().numpy()  # Convert PyTorch tensor to NumPy array
+            elif isinstance(value, (set, frozenset)):
+                value = list(value)  # Convert sets to lists
+            elif hasattr(value, "__dict__"):
+                value = value.__dict__  # Convert custom objects to dictionaries
+
+            # Check if the type is supported by hdf5storage
+            if not isinstance(value, (np.ndarray, list, tuple, dict, str, bytes, bytearray, int, float, bool, complex)):
+                value = str(value)  # Convert unsupported types to strings
+
+            mat_dict[name] = value
+
         try:
-            sio.savemat(file_path, mat_dict)
+            hdf5storage.savemat(file_path, mat_dict, matlab_compatible=True)
         except Exception as e:
             raise ValueError(f"Failed to save variables to .mat: {e}")
 
@@ -201,8 +241,10 @@ class VariableExporter:
                 f.write(str(value) + "\n")
             elif torch.is_tensor(value):
                 f.write(str(value.cpu().numpy()) + "\n")
-            elif isinstance(value, str):
-                f.write(value + "\n")
+            elif isinstance(value, (str, bytes, bytearray)):
+                f.write(value.decode('utf-8') if isinstance(value, (bytes, bytearray)) else value + "\n")
+            elif isinstance(value, (int, float, bool, complex)):
+                f.write(str(value) + "\n")
             else:
                 # For unsupported types, export their string representation
                 f.write(f"{str(value)}\n")
@@ -218,7 +260,9 @@ class VariableExporter:
                     f.write(str(value) + "\n")
                 elif torch.is_tensor(value):
                     f.write(str(value.cpu().numpy()) + "\n")
-                elif isinstance(value, str):
-                    f.write(value + "\n")
+                elif isinstance(value, (str, bytes, bytearray)):
+                    f.write(value.decode('utf-8') if isinstance(value, (bytes, bytearray)) else value + "\n")
+                elif isinstance(value, (int, float, bool, complex)):
+                    f.write(str(value) + "\n")
                 else:
                     f.write(f"{str(value)}\n")
