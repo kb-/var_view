@@ -2,7 +2,7 @@
 # TODO: memory and lazy loading to improve. Wrong size on root. Display grayed with + sign before fully loaded?
 # TODO: fix update. Doesn't work for SVA ROI
 # TODO: tree doesn't display child object content in list (SVA ROIs)
-# TODO: fix "Variable '{variable_name}' could not be resolved and was not exported."when trying to export a child of globals (tried on a frame returned by SVA reader)
+# TODO: fix "Variable '{variable_name}' could not be resolved and was not exported." when trying to export a child of globals (tried on a frame returned by SVA reader)
 from PyQt6.QtWidgets import QApplication, QMainWindow, QTreeView, QVBoxLayout, QWidget, \
     QMenu, QHeaderView, QMessageBox
 from PyQt6.QtGui import QStandardItemModel, QStandardItem, QAction
@@ -12,6 +12,7 @@ import torch
 import sys
 import inspect
 import logging
+import re  # Added import for regex
 from app.variableExporter import VariableExporter
 
 
@@ -196,7 +197,8 @@ class VariableViewer(QMainWindow):
 
     def can_expand(self, value):
         """Check if a variable can be expanded."""
-        return isinstance(value, (list, tuple, dict, QObject)) or hasattr(value, '__dict__')
+        return isinstance(value, (list, tuple, dict, QObject)) or hasattr(value,
+                                                                          '__dict__')
 
     def handle_expand(self, index):
         """Handle lazy loading when a tree item is expanded."""
@@ -296,8 +298,8 @@ class VariableViewer(QMainWindow):
         path = ""
         for part in parts:
             if part.startswith("[") and path:
-                # **Insert a dot before list indices**
-                path += "." + part  # Changed from path += part
+                # Do NOT insert a dot before list indices
+                path += part  # This results in "list_obj[0].car.owner.age"
             else:
                 if path:
                     path += "." + part
@@ -308,20 +310,22 @@ class VariableViewer(QMainWindow):
     def resolve_variable(self, name, root_variables):
         """Resolve a variable name to its value."""
         try:
-            components = name.split('.')
+            # Use regex to split the path into components
+            pattern = re.compile(r'\w+|\[\d+\]')
+            components = pattern.findall(name)
             value = root_variables
-            for component in components:
-                if component.startswith("[") and component.endswith("]"):
-                    try:
-                        index = int(component[1:-1])
-                        value = value[index]
-                    except (ValueError, IndexError, KeyError):
-                        return None
-                elif isinstance(value, dict) and component in value:
-                    value = value[component]
-                elif hasattr(value, component):
-                    value = getattr(value, component)
+            for comp in components:
+                if comp.startswith("[") and comp.endswith("]"):
+                    # It's a list or tuple index
+                    index = int(comp[1:-1])
+                    value = value[index]
                 else:
+                    # It's an attribute or dict key
+                    if isinstance(value, dict):
+                        value = value.get(comp, None)
+                    else:
+                        value = getattr(value, comp, None)
+                if value is None:
                     return None
             return value
         except Exception as e:
@@ -341,10 +345,15 @@ class VariableViewer(QMainWindow):
                 sample = flattened[:5] if flattened.size >= 5 else flattened
                 return f"ndarray{value.shape}: {sample.tolist()}..."
             elif isinstance(value, torch.Tensor):
-                flattened = value.flatten().tolist()
-                # Sample first 5 elements
-                sample = flattened[:5] if len(flattened) >= 5 else flattened
-                return f"Tensor{tuple(value.shape)}: {sample}..."
+                # Avoid accessing 'imag' for non-complex tensors
+                if torch.is_complex(value):
+                    sample = value.flatten().tolist()[:5]
+                    return f"Tensor{tuple(value.shape)}: {sample}..."
+                else:
+                    flattened = value.flatten().tolist()
+                    # Sample first 5 elements
+                    sample = flattened[:5] if len(flattened) >= 5 else flattened
+                    return f"Tensor{tuple(value.shape)}: {sample}..."
             elif hasattr(value, '__dict__'):  # Objects with attributes
                 return "{...}"
             return str(value)
