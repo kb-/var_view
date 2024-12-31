@@ -196,8 +196,7 @@ class VariableViewer(QMainWindow):
 
     def can_expand(self, value):
         """Check if a variable can be expanded."""
-        return isinstance(value, (list, tuple, dict, QObject)) or hasattr(value,
-                                                                          '__dict__')
+        return isinstance(value, (list, tuple, dict, QObject)) or hasattr(value, '__dict__')
 
     def handle_expand(self, index):
         """Handle lazy loading when a tree item is expanded."""
@@ -297,8 +296,8 @@ class VariableViewer(QMainWindow):
         path = ""
         for part in parts:
             if part.startswith("[") and path:
-                # Append list index directly without a dot
-                path += part
+                # **Insert a dot before list indices**
+                path += "." + part  # Changed from path += part
             else:
                 if path:
                     path += "." + part
