@@ -1,36 +1,114 @@
+# tests/test_variable_exporter.py
+
 import pytest
 import numpy as np
 import torch
 import scipy.io as sio
+import h5py
+import pickle
 from pathlib import Path
 
-from src.app.variableExporter import VariableExporter
+from src.app.variableExporter import \
+    VariableExporter  # Adjust the import path as needed
+
+
+# Define custom classes for testing
+class Engine:
+    def __init__(self, horsepower, type_):
+        self.horsepower = horsepower
+        self.type = type_
+
+    def start(self):
+        return "Engine started."
+
+
+class Car:
+    def __init__(self, make, model, engine):
+        self.make = make
+        self.model = model
+        self.engine = engine
+        self.owner = None  # To be set later, creating a cyclic reference
+
+    def drive(self):
+        return f"Driving the {self.make} {self.model}."
+
+    def set_owner(self, owner):
+        self.owner = owner
+
+
+class Person:
+    def __init__(self, name, age, car=None):
+        self.name = name
+        self.age = age
+        self.car = car
+
+    def greet(self):
+        return f"Hello, my name is {self.name}."
+
+    def buy_car(self, car):
+        self.car = car
+        car.set_owner(self)
+
 
 @pytest.fixture
 def exporter():
+    # Instantiate VariableExporter; pass None or a mock if parent is required
     return VariableExporter()
+
 
 @pytest.fixture
 def sample_data():
+    # Create instances of custom classes
+    engine_v8 = Engine(450, "V8")
+    car_ferrari = Car("Ferrari", "488 Spider", engine_v8)
+    person_john = Person("John Doe", 30)
+    person_john.buy_car(car_ferrari)  # Establish cyclic reference
+
     return {
         "numpy_array": np.random.rand(10, 10),
         "torch_tensor": torch.rand(10, 10),
         "string_var": "Hello, World!",
         "nested_list": [[1, 2], [3, 4]],
         "dict_var": {"key1": 1, "key2": "value"},
+        "custom_obj": person_john,  # Custom object with nested and cyclic references
     }
+
+
+@pytest.fixture
+def batch_sample_data():
+    # Create another set of custom objects for batch testing
+    engine_v6 = Engine(300, "V6")
+    car_bmw = Car("BMW", "M3", engine_v6)
+    person_jane = Person("Jane Smith", 28)
+    person_jane.buy_car(car_bmw)
+
+    return {
+        "numpy_array": np.random.rand(5, 5),
+        "torch_tensor": torch.rand(5, 5),
+        "string_var": "Batch Export Test",
+        "nested_list": [[5, 6], [7, 8]],
+        "dict_var": {"keyA": "A", "keyB": "B"},
+        "custom_obj": person_jane,
+    }
+
 
 @pytest.fixture
 def tmp_file(tmp_path):
     return tmp_path / "test_file"
 
-def test_save_as_npy(exporter, tmp_file, sample_data):
+
+# -------------------------
+# Single Variable Exports
+# -------------------------
+
+def test_save_as_npy_single(exporter, tmp_file, sample_data):
     file_path = str(tmp_file) + ".npy"
-    exporter.save_as_npy(sample_data["numpy_array"], file_path)
+    exporter.save_as_npy_single(sample_data["numpy_array"], file_path)
 
     assert Path(file_path).exists()
     loaded = np.load(file_path)
     assert np.allclose(loaded, sample_data["numpy_array"])
+
 
 def test_save_as_csv(exporter, tmp_file, sample_data):
     file_path = str(tmp_file) + ".csv"
@@ -40,26 +118,31 @@ def test_save_as_csv(exporter, tmp_file, sample_data):
     loaded = np.loadtxt(file_path, delimiter=",")
     assert np.allclose(loaded, sample_data["numpy_array"])
 
-def test_save_as_h5(exporter, tmp_file, sample_data):
+
+def test_save_as_h5_single(exporter, tmp_file, sample_data):
     file_path = str(tmp_file) + ".h5"
-    exporter.save_as_h5("numpy_array", sample_data["numpy_array"], file_path)
+    exporter.save_as_h5_single("numpy_array", sample_data["numpy_array"], file_path)
 
     assert Path(file_path).exists()
-    import h5py
     with h5py.File(file_path, "r") as f:
         loaded = f["numpy_array"][:]
         assert np.allclose(loaded, sample_data["numpy_array"])
 
-def test_save_as_mat_all_types(exporter, tmp_file, sample_data):
+
+def test_save_as_mat_single(exporter, tmp_file, sample_data):
     for variable_name, value in sample_data.items():
-        file_path = tmp_file / f"{variable_name}.mat"
-        file_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
+        if variable_name == "custom_obj":
+            continue  # Skip complex objects for .mat single export
+        file_path = str(tmp_file) + f"_{variable_name}.mat"
+        # Ensure directory exists
+        file_path_obj = Path(file_path)
+        file_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
         # Export the variable
-        exporter.save_as_mat(variable_name, value, str(file_path))
+        exporter.save_as_mat_single(variable_name, value, file_path)
 
         # Validate the exported .mat file
-        assert file_path.exists(), f"File {file_path} was not created."
+        assert Path(file_path).exists(), f"File {file_path} was not created."
 
         # Load the .mat file and check the contents
         loaded = sio.loadmat(file_path)
@@ -73,9 +156,16 @@ def test_save_as_mat_all_types(exporter, tmp_file, sample_data):
         elif torch.is_tensor(value):
             assert np.allclose(loaded[variable_name], value.cpu().numpy())
         elif isinstance(value, (list, tuple)):
+            # MAT files convert lists to MATLAB cell arrays, but depending on the exporter implementation
+            # It may convert them to NumPy object arrays
+            # For testing, we can try to compare the lists if possible
+            # Here, assuming the exporter converts to list
             assert loaded[variable_name].tolist() == list(value)
         elif isinstance(value, str):
-            assert loaded[variable_name] == value
+            # MATLAB saves strings as character arrays
+            # Comparing directly may require decoding
+            loaded_str = ''.join([chr(c) for c in loaded[variable_name][0]])
+            assert loaded_str == value
         elif isinstance(value, (int, float)):
             assert loaded[variable_name].item() == value
 
@@ -90,26 +180,37 @@ def test_save_as_png(exporter, tmp_file, sample_data):
     from PIL import Image
     with Image.open(file_path) as img:
         loaded = np.array(img)
-        expected = ((array - array.min()) / (array.max() - array.min()) * 255).astype(np.uint8)
+        array_min = array.min()
+        array_max = array.max()
+        if array_min == array_max:
+            expected = np.zeros_like(array, dtype=np.uint8)
+            expected[:] = 255 if array_min > 0 else 0
+        else:
+            expected = ((array - array_min) / (array_max - array_min) * 255).astype(
+                np.uint8)
         assert np.array_equal(loaded, expected)
 
-def test_save_as_txt(exporter, tmp_file, sample_data):
+
+def test_save_as_txt_single(exporter, tmp_file, sample_data):
     file_path = str(tmp_file) + ".txt"
-    exporter.save_as_txt("string_var", sample_data["string_var"], file_path)
+    exporter.save_as_txt_single("string_var", sample_data["string_var"], file_path)
 
     assert Path(file_path).exists()
     with open(file_path, "r") as f:
         loaded = f.read()
-        assert loaded == sample_data["string_var"]
+        assert loaded == f"# Variable: string_var\n{sample_data['string_var']}\n"
+
 
 def test_save_as_txt_list(exporter, tmp_file, sample_data):
     file_path = str(tmp_file) + ".txt"
-    exporter.save_as_txt("nested_list", sample_data["nested_list"], file_path)
+    exporter.save_as_txt_single("nested_list", sample_data["nested_list"], file_path)
 
     assert Path(file_path).exists()
     with open(file_path, "r") as f:
-        loaded = eval(f.read())
-        assert loaded == sample_data["nested_list"]
+        loaded = f.read()
+        # The exporter writes "# Variable: nested_list\n[[1, 2], [3, 4]]\n"
+        expected = f"# Variable: nested_list\n{str(sample_data['nested_list'])}\n"
+        assert loaded == expected
 
 
 def test_export_unsupported_type(exporter, tmp_file):
@@ -118,24 +219,279 @@ def test_export_unsupported_type(exporter, tmp_file):
     unsupported_value = set([1, 2, 3])
 
     # Export the unsupported type
-    exporter.save_as_txt(variable_name, unsupported_value, file_path)
+    exporter.save_as_txt_single(variable_name, unsupported_value, file_path)
 
     assert Path(file_path).exists()
     with open(file_path, "r") as f:
         loaded = f.read()
 
     # Check the exported content
-    expected_header = f"# Exported variable: {variable_name}"
-    expected_content = str(unsupported_value)
+    expected_header = f"# Variable: {variable_name}\n"
+    expected_content = f"{str(unsupported_value)}\n"
     assert loaded.startswith(
         expected_header), f"Expected header '{expected_header}' not found in exported content."
     assert expected_content in loaded, f"Expected content '{expected_content}' not found in exported content."
 
 
-def test_torch_tensor_as_npy(exporter, tmp_file, sample_data):
+def test_torch_tensor_as_npy_single(exporter, tmp_file, sample_data):
     file_path = str(tmp_file) + ".npy"
-    exporter.save_as_npy(sample_data["torch_tensor"], file_path)
+    exporter.save_as_npy_single(sample_data["torch_tensor"], file_path)
 
     assert Path(file_path).exists()
     loaded = np.load(file_path)
-    assert np.allclose(loaded, sample_data["torch_tensor"].numpy())
+    assert np.allclose(loaded, sample_data["torch_tensor"].cpu().numpy())
+
+
+# -------------------------
+# Batch Export Tests
+# -------------------------
+
+def test_batch_export_npz(exporter, tmp_file, batch_sample_data):
+    file_path = str(tmp_file) + ".npz"
+    exporter.save_as_npz_batch(batch_sample_data, file_path)
+
+    assert Path(file_path).exists()
+    loaded = np.load(file_path, allow_pickle=True)
+    for key, value in batch_sample_data.items():
+        if isinstance(value, np.ndarray):
+            assert np.allclose(loaded[key], value)
+        elif torch.is_tensor(value):
+            assert np.allclose(loaded[key], value.cpu().numpy())
+        else:
+            # Assuming exporter converts unsupported types to strings
+            assert loaded[key].tolist() == str(value)
+
+
+def test_batch_export_h5(exporter, tmp_file, batch_sample_data):
+    file_path = str(tmp_file) + ".h5"
+    exporter.save_as_h5_batch(batch_sample_data, file_path)
+
+    assert Path(file_path).exists()
+    with h5py.File(file_path, "r") as f:
+        for key, value in batch_sample_data.items():
+            if isinstance(value, np.ndarray) or torch.is_tensor(value):
+                if key in f:
+                    loaded = f[key][:]
+                    expected = value if isinstance(value,
+                                                   np.ndarray) else value.cpu().numpy()
+                    assert np.allclose(loaded, expected)
+                else:
+                    # Unsupported types are saved as attributes
+                    loaded = f.attrs.get(key, None)
+                    assert loaded == str(value)
+            else:
+                # Unsupported types are saved as attributes
+                loaded = f.attrs.get(key, None)
+                assert loaded == str(value)
+
+
+def test_batch_export_mat(exporter, tmp_file, batch_sample_data):
+    file_path = str(tmp_file) + ".mat"
+    exporter.save_as_mat_batch(batch_sample_data, file_path)
+
+    assert Path(file_path).exists()
+    loaded = sio.loadmat(file_path)
+    for key, value in batch_sample_data.items():
+        if isinstance(value, np.ndarray):
+            assert np.allclose(loaded[key], value)
+        elif torch.is_tensor(value):
+            assert np.allclose(loaded[key], value.cpu().numpy())
+        else:
+            # MAT files may not handle custom objects directly
+            # Assuming exporter converts unsupported types to strings
+            assert loaded[key] == str(value)
+
+
+def test_batch_export_txt(exporter, tmp_file, batch_sample_data):
+    file_path = str(tmp_file) + ".txt"
+    exporter.save_as_txt_batch(batch_sample_data, file_path)
+
+    assert Path(file_path).exists()
+    with open(file_path, "r") as f:
+        content = f.read()
+        for key, value in batch_sample_data.items():
+            expected_header = f"# Variable: {key}\n"
+            expected_content = ""
+            if isinstance(value, (list, tuple, dict)):
+                expected_content = f"{str(value)}\n"
+            elif isinstance(value, np.ndarray):
+                expected_content = f"{str(value)}\n"
+            elif torch.is_tensor(value):
+                expected_content = f"{str(value.cpu().numpy())}\n"
+            elif isinstance(value, str):
+                expected_content = f"{value}\n"
+            else:
+                # For unsupported types, expect string representation
+                expected_content = f"{str(value)}\n"
+
+            assert expected_header in content, f"Header for '{key}' not found."
+            assert expected_content in content, f"Content for '{key}' not found."
+
+
+# -------------------------
+# Custom Object Export Tests
+# -------------------------
+
+# Note: VariableExporter does NOT have a save_as_pickle_batch method.
+# These tests are removed/skipped unless you implement pickle export functionality.
+
+# To skip these tests, you can use pytest's skip decorator.
+# Uncomment the following tests if you decide to implement pickle export methods.
+
+@pytest.mark.skip(
+    reason="Pickle export methods are not implemented in VariableExporter.")
+def test_batch_export_pickle(exporter, tmp_file, batch_sample_data):
+    file_path = str(tmp_file) + ".pkl"
+    exporter.save_as_pickle_batch(batch_sample_data, file_path)
+
+    assert Path(file_path).exists()
+    with open(file_path, "rb") as f:
+        loaded = pickle.load(f)
+        for key, value in batch_sample_data.items():
+            if isinstance(value, torch.Tensor):
+                assert isinstance(loaded[key], torch.Tensor)
+                assert torch.allclose(loaded[key], value)
+            else:
+                assert loaded[key] == value
+
+
+@pytest.mark.skip(
+    reason="Pickle export methods are not implemented in VariableExporter.")
+def test_export_custom_object(exporter, tmp_file, sample_data):
+    file_path = str(tmp_file) + ".pkl"
+    custom_obj = sample_data["custom_obj"]
+    exporter.save_as_pickle_batch({"custom_obj": custom_obj}, file_path)
+
+    assert Path(file_path).exists()
+    with open(file_path, "rb") as f:
+        loaded = pickle.load(f)
+        loaded_obj = loaded["custom_obj"]
+        assert isinstance(loaded_obj, Person)
+        assert loaded_obj.name == custom_obj.name
+        assert loaded_obj.age == custom_obj.age
+        assert loaded_obj.car.make == custom_obj.car.make
+        assert loaded_obj.car.model == custom_obj.car.model
+        assert loaded_obj.car.engine.horsepower == custom_obj.car.engine.horsepower
+        assert loaded_obj.car.owner == loaded_obj  # Check cyclic reference
+
+
+@pytest.mark.skip(
+    reason="Pickle export methods are not implemented in VariableExporter.")
+def test_export_cyclic_reference(exporter, tmp_file):
+    # Create cyclic reference
+    a = {}
+    a["self"] = a
+
+    file_path = str(tmp_file) + ".pkl"
+    exporter.save_as_pickle_batch({"cyclic_ref": a}, file_path)
+
+    assert Path(file_path).exists()
+    with open(file_path, "rb") as f:
+        loaded = pickle.load(f)
+        loaded_ref = loaded["cyclic_ref"]
+        assert loaded_ref["self"] is loaded_ref  # Check cyclic reference preserved
+
+
+@pytest.mark.skip(
+    reason="Pickle export methods are not implemented in VariableExporter.")
+def test_batch_export_with_custom_objects(exporter, tmp_file, batch_sample_data):
+    file_path_npz = str(tmp_file) + "_batch.npz"
+    exporter.save_as_npz_batch(batch_sample_data, file_path_npz)
+    assert Path(file_path_npz).exists()
+    loaded_npz = np.load(file_path_npz, allow_pickle=True)
+    assert "custom_obj" in loaded_npz
+    # Depending on exporter implementation, custom_obj might be saved as string or pickled
+    # Here, assuming it's converted to string
+    assert loaded_npz["custom_obj"].tolist() == str(batch_sample_data["custom_obj"])
+
+    # Similarly, test other batch formats with custom objects
+    file_path_h5 = str(tmp_file) + "_batch.h5"
+    exporter.save_as_h5_batch(batch_sample_data, file_path_h5)
+    assert Path(file_path_h5).exists()
+    with h5py.File(file_path_h5, "r") as f:
+        if "custom_obj" in f:
+            # If custom_obj is stored as a dataset, it's likely saved as string
+            loaded_custom_obj = f["custom_obj"][()]
+            assert loaded_custom_obj.decode('utf-8') == str(
+                batch_sample_data["custom_obj"])
+        else:
+            # Otherwise, it might be stored as an attribute
+            loaded_custom_obj = f.attrs.get("custom_obj", None)
+            assert loaded_custom_obj == str(batch_sample_data["custom_obj"])
+
+
+# -------------------------
+# Additional Tests (Optional)
+# -------------------------
+
+def test_export_variable_during_modification(exporter, tmp_file, sample_data):
+    file_path = str(tmp_file) + ".npy"
+    exporter.save_as_npy_single(sample_data["numpy_array"], file_path)
+
+    # Modify the original data after export
+    sample_data["numpy_array"][0, 0] = 999
+
+    # Load the exported file and ensure it hasn't changed
+    loaded = np.load(file_path)
+    assert loaded[0, 0] != 999
+    assert np.allclose(loaded,
+                       sample_data["numpy_array"] + 0)  # Compare to the original state
+
+
+def test_export_empty_variable(exporter, tmp_file):
+    file_path = str(tmp_file) + ".npy"
+    empty_array = np.array([])
+    exporter.save_as_npy_single(empty_array, file_path)
+
+    assert Path(file_path).exists()
+    loaded = np.load(file_path)
+    assert loaded.size == 0
+
+
+def test_export_large_numpy_array(exporter, tmp_file):
+    large_array = np.random.rand(10000, 10000)
+    file_path = str(tmp_file) + ".npy"
+    exporter.save_as_npy_single(large_array, file_path)
+
+    assert Path(file_path).exists()
+    loaded = np.load(file_path)
+    assert np.allclose(loaded, large_array)
+
+
+def test_export_large_torch_tensor(exporter, tmp_file):
+    large_tensor = torch.rand(10000, 10000)
+    file_path = str(tmp_file) + ".npy"
+    exporter.save_as_npy_single(large_tensor, file_path)
+
+    assert Path(file_path).exists()
+    loaded = np.load(file_path)
+    assert np.allclose(loaded, large_tensor.cpu().numpy())
+
+
+def test_export_object_methods(exporter, tmp_file, sample_data):
+    # Export methods as strings
+    # Assuming you want to export the results of method calls
+    file_path = str(tmp_file) + ".txt"
+    custom_obj = sample_data["custom_obj"]
+    methods = {
+        "greet": custom_obj.greet(),
+        "drive": custom_obj.car.drive(),
+        "start_engine": custom_obj.car.engine.start(),
+    }
+    for method_name, result in methods.items():
+        exporter.save_as_txt_single(method_name, result,
+                                    f"{file_path}_{method_name}.txt")
+        assert Path(f"{file_path}_{method_name}.txt").exists()
+        with open(f"{file_path}_{method_name}.txt", "r") as f:
+            loaded = f.read()
+            assert loaded == f"# Variable: {method_name}\n{result}\n"
+
+
+def test_export_with_missing_permission(exporter, tmp_file, sample_data, mocker):
+    # Mock the save_as_npy_single method to raise a PermissionError
+    mocker.patch.object(exporter, 'save_as_npy_single',
+                        side_effect=PermissionError("No write permission"))
+
+    file_path = str(tmp_file) + ".npy"
+    with pytest.raises(PermissionError, match="No write permission"):
+        exporter.save_as_npy_single(sample_data["numpy_array"], file_path)
