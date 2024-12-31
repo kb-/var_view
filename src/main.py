@@ -528,7 +528,7 @@ if __name__ == "__main__":
         "nested_dict": {"a": 1, "b": {"c": 2, "d": 3}},
         "numpy_array": np.random.rand(100, 100),
         "torch_tensor": torch.rand(10, 10).to(device),
-        "string_var": "Hello, World!",
+        "string_var": "Try right click update!",
         "test_obj": person_john,  # Custom object
     }
     app_variables.update({
