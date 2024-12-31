@@ -290,38 +290,57 @@ class VariableExporter:
         else:
             raise TypeError("Unsupported type for PNG export.")
 
+    # def save_as_txt_single(self, name, value, file_path):
+    #     """Save a single variable into a .txt file."""
+    #     with open(file_path, "w") as f:
+    #         f.write(f"# Variable: {name}\n")
+    #         if isinstance(value, (list, tuple, dict)):
+    #             f.write(str(value) + "\n")
+    #         elif isinstance(value, np.ndarray):
+    #             f.write(str(value) + "\n")
+    #         elif torch.is_tensor(value):
+    #             f.write(str(value.cpu().numpy()) + "\n")
+    #         elif isinstance(value, (str, bytes, bytearray)):
+    #             f.write(value.decode('utf-8') if isinstance(value, (bytes, bytearray)) else value + "\n")
+    #         elif isinstance(value, (int, float, bool, complex)):
+    #             f.write(str(value) + "\n")
+    #         else:
+    #             # For unsupported types, export their string representation
+    #             f.write(f"{str(value)}\n")
     def save_as_txt_single(self, name, value, file_path):
-        """Save a single variable into a .txt file."""
-        with open(file_path, "w") as f:
+        with open(file_path, "w", encoding="utf-8") as f:
             f.write(f"# Variable: {name}\n")
-            if isinstance(value, (list, tuple, dict)):
-                f.write(str(value) + "\n")
-            elif isinstance(value, np.ndarray):
-                f.write(str(value) + "\n")
-            elif torch.is_tensor(value):
-                f.write(str(value.cpu().numpy()) + "\n")
-            elif isinstance(value, (str, bytes, bytearray)):
-                f.write(value.decode('utf-8') if isinstance(value, (bytes, bytearray)) else value + "\n")
-            elif isinstance(value, (int, float, bool, complex)):
-                f.write(str(value) + "\n")
-            else:
-                # For unsupported types, export their string representation
-                f.write(f"{str(value)}\n")
 
+            if isinstance(value, (bytes, bytearray)):
+                # Decode then add a newline
+                f.write(value.decode("utf-8") + "\n")
+            else:
+                # Some fallback for other types
+                f.write(str(value) + "\n")
+
+    # def save_as_txt_batch(self, variables_dict, file_path):
+    #     """Save multiple variables into a single .txt file."""
+    #     with open(file_path, "w") as f:
+    #         for name, value in variables_dict.items():
+    #             f.write(f"# Variable: {name}\n")
+    #             if isinstance(value, (list, tuple, dict)):
+    #                 f.write(str(value) + "\n")
+    #             elif isinstance(value, np.ndarray):
+    #                 f.write(str(value) + "\n")
+    #             elif torch.is_tensor(value):
+    #                 f.write(str(value.cpu().numpy()) + "\n")
+    #             elif isinstance(value, (str, bytes, bytearray)):
+    #                 f.write(value.decode('utf-8') if isinstance(value, (bytes, bytearray)) else value + "\n")
+    #             elif isinstance(value, (int, float, bool, complex)):
+    #                 f.write(str(value) + "\n")
+    #             else:
+    #                 f.write(f"{str(value)}\n")
     def save_as_txt_batch(self, variables_dict, file_path):
-        """Save multiple variables into a single .txt file."""
-        with open(file_path, "w") as f:
+        with open(file_path, "w", encoding="utf-8") as f:
             for name, value in variables_dict.items():
                 f.write(f"# Variable: {name}\n")
-                if isinstance(value, (list, tuple, dict)):
-                    f.write(str(value) + "\n")
-                elif isinstance(value, np.ndarray):
-                    f.write(str(value) + "\n")
-                elif torch.is_tensor(value):
-                    f.write(str(value.cpu().numpy()) + "\n")
-                elif isinstance(value, (str, bytes, bytearray)):
-                    f.write(value.decode('utf-8') if isinstance(value, (bytes, bytearray)) else value + "\n")
-                elif isinstance(value, (int, float, bool, complex)):
-                    f.write(str(value) + "\n")
+                if isinstance(value, (bytes, bytearray)):
+                    f.write(value.decode("utf-8") + "\n")
                 else:
-                    f.write(f"{str(value)}\n")
+                    f.write(str(value) + "\n")
+
