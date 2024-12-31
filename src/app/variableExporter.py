@@ -7,6 +7,58 @@ from PyQt6.QtWidgets import QFileDialog, QMessageBox
 import os
 import pickle
 
+def make_matlab_compatible(data, options=None, visited=None):
+    """
+    Recursively convert data into forms hdf5storage can handle under
+    matlab_compatible=True. Leaves alone data that hdf5storage can
+    already marshal. Converts only truly unsupported types.
+    """
+    # Track already-visited objects to prevent infinite recursion
+    if visited is None:
+        visited = set()
+    obj_id = id(data)
+    if obj_id in visited:
+        # Break any cycles by storing a string note about recursion
+        return f"<Cyclic reference to object id={obj_id}>"
+    visited.add(obj_id)
+
+    # 1. Convert torch.Tensor → NumPy
+    if torch.is_tensor(data):
+        data = data.cpu().numpy()
+
+    # 2. Recurse into containers
+    if isinstance(data, (list, tuple)):
+        # Convert each element, and possibly turn tuple into list
+        new_list = [make_matlab_compatible(x, options, visited) for x in data]
+        # If it was originally a list, keep it as a list
+        # If you need to preserve "tuple vs. list", you could do so,
+        # but MATLAB doesn't differentiate them anyway.
+        data = new_list
+    elif isinstance(data, (set, frozenset)):
+        # Convert sets → list
+        new_list = [make_matlab_compatible(x, options, visited) for x in data]
+        data = new_list
+    elif isinstance(data, dict):
+        # Convert each value
+        new_dict = {}
+        for k, v in data.items():
+            # Convert the key to string if it's not already
+            # so that MATLAB doesn't choke on weird keys
+            if not isinstance(k, str):
+                k = str(k)
+            new_dict[k] = make_matlab_compatible(v, options, visited)
+        data = new_dict
+
+    # 3. Check if hdf5storage can marshal the resulting object
+    #    (That includes built-in Python types, np.ndarray, etc.)
+    if options is not None:
+        # Grab the marshaller for the object’s current Python type
+        marshaller = options.marshaller_collection.get_marshaller_for_type(type(data))
+        if marshaller is None:
+            # Fallback: store the object as string
+            data = str(data)
+
+    return data
 
 class VariableExporter:
     def __init__(self, parent=None):
@@ -158,45 +210,52 @@ class VariableExporter:
                     f.attrs[name] = str(value)  # Save unsupported types as string metadata
 
     def save_as_mat_single(self, name, value, file_path):
-        """Save a single variable into a .mat file using hdf5storage."""
-        if isinstance(value, torch.Tensor):
-            value = value.cpu().numpy()  # Convert PyTorch tensor to NumPy array
+        """
+        Save a single variable into a .mat file using hdf5storage,
+        converting unsupported data into forms that MATLAB can handle.
+        """
+        # Create Options for MATLAB compatibility
+        options = hdf5storage.Options(
+            matlab_compatible=True,
+            store_python_metadata=True
+        )
 
-        # Handle specific unsupported types
-        if isinstance(value, (set, frozenset)):
-            value = list(value)  # Convert sets to lists
-        elif hasattr(value, "__dict__"):
-            value = value.__dict__  # Convert custom objects to dictionaries
-
-        # Check if the type is supported by hdf5storage
-        if not isinstance(value, (np.ndarray, list, tuple, dict, str, bytes, bytearray, int, float, bool, complex)):
-            value = str(value)  # Convert unsupported types to strings
+        # Recursively convert only unsupported data
+        converted_value = make_matlab_compatible(value, options=options)
 
         try:
-            # Save the variable using its name with hdf5storage
-            hdf5storage.savemat(file_path, {name: value}, matlab_compatible=True)
+            hdf5storage.savemat(
+                file_path,
+                {name: converted_value},
+                format='7.3',
+                options=options
+            )
         except Exception as e:
             raise ValueError(f"Failed to save '{name}' to .mat: {e}")
 
     def save_as_mat_batch(self, variables_dict, file_path):
-        """Save multiple variables into a single .mat file using hdf5storage."""
-        mat_dict = {}
-        for name, value in variables_dict.items():
-            if isinstance(value, torch.Tensor):
-                value = value.cpu().numpy()  # Convert PyTorch tensor to NumPy array
-            elif isinstance(value, (set, frozenset)):
-                value = list(value)  # Convert sets to lists
-            elif hasattr(value, "__dict__"):
-                value = value.__dict__  # Convert custom objects to dictionaries
+        """
+        Save multiple variables into a single .mat file using hdf5storage,
+        converting only truly unsupported data (e.g. torch.Tensor).
+        """
+        options = hdf5storage.Options(
+            matlab_compatible=True,
+            store_python_metadata=True
+        )
 
-            # Check if the type is supported by hdf5storage
-            if not isinstance(value, (np.ndarray, list, tuple, dict, str, bytes, bytearray, int, float, bool, complex)):
-                value = str(value)  # Convert unsupported types to strings
-
-            mat_dict[name] = value
+        # Recursively convert only unsupported data
+        converted_dict = {
+            var_name: make_matlab_compatible(val, options=options)
+            for var_name, val in variables_dict.items()
+        }
 
         try:
-            hdf5storage.savemat(file_path, mat_dict, matlab_compatible=True)
+            hdf5storage.savemat(
+                file_path,
+                converted_dict,
+                format='7.3',
+                options=options
+            )
         except Exception as e:
             raise ValueError(f"Failed to save variables to .mat: {e}")
 
