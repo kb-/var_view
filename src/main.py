@@ -534,6 +534,7 @@ if __name__ == "__main__":
         "torch_tensor": torch.rand(10, 10).to(device),
         "string_var": "Try right click update!",
         "test_obj": person_john,  # Custom object
+        "list_obj": [person_john, person_john, person_john],
     }
     app_variables.update({
         "huge_tensor": torch.rand(10000, 10000),
