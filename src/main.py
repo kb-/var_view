@@ -3,17 +3,30 @@
 # TODO: fix update. Doesn't work for SVA ROI
 # TODO: tree doesn't display child object content in list (SVA ROIs)
 # TODO: fix "Variable '{variable_name}' could not be resolved and was not exported." when trying to export a child of globals (tried on a frame returned by SVA reader)
+import asyncio
+import os
+import shutil
+import tempfile
+import uuid
+from uuid import uuid4
+
+from PyQt6 import QtWidgets
 from PyQt6.QtWidgets import QApplication, QMainWindow, QTreeView, QVBoxLayout, QWidget, \
     QMenu, QHeaderView, QMessageBox
 from PyQt6.QtGui import QStandardItemModel, QStandardItem, QAction
-from PyQt6.QtCore import QObject, Qt
+from PyQt6.QtCore import QObject, Qt, QTimer
 import numpy as np
 import torch
 import sys
 import inspect
 import logging
 import re  # Added import for regex
+
+from jupyter_client import AsyncKernelManager, KernelManager
+
 from app.variableExporter import VariableExporter
+from qtconsole.rich_jupyter_widget import RichJupyterWidget
+from qtconsole.inprocess import QtInProcessKernelManager
 
 
 class VariableStandardItemModel(QStandardItemModel):
@@ -479,10 +492,47 @@ class VariableViewer(QMainWindow):
             clipboard.setText("\n".join(paths))
             logging.debug(f"Copied to clipboard: {paths}")
 
+    def add_console(self, variables):
+        # Create an in-process kernel manager
+        kernel_manager = QtInProcessKernelManager()
+        kernel_manager.start_kernel()
+        kernel_manager.kernel.gui = "qt"
+
+        # Create a kernel client and start channels
+        kernel_client = kernel_manager.client()
+        kernel_client.start_channels()
+
+        # Create a Rich Jupyter Widget
+        console = RichJupyterWidget()
+        console.kernel_manager = kernel_manager
+        console.kernel_client = kernel_client
+
+        # Create a separate window for the console
+        console_window = QtWidgets.QWidget()
+        console_window.setWindowTitle("Console")
+        layout = QtWidgets.QVBoxLayout(console_window)
+        layout.addWidget(console)
+        console_window.resize(600, 960)  # Set initial size for the console window
+        console_window.show()
+
+        # Store a reference to prevent garbage collection
+        self.console_window = console_window
+
+        # Inject the shared app_variables dictionary into the console
+        # kernel_manager.kernel.shell.push({"app_variables": variables})
+        kernel = kernel_manager.kernel.shell
+        kernel.push({"app_variables": variables})
+
+        # Unpack app_variables into the kernel namespace
+        for key, value in variables.items():
+            kernel.push({key: value})
+
+        logging.info("Console window opened and app_variables instance injected.")
+
 
 if __name__ == "__main__":
     # Configure logging for debugging purposes
-    logging.basicConfig(level=logging.DEBUG,
+    logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s - %(levelname)s - %(message)s')
 
 
@@ -553,12 +603,21 @@ if __name__ == "__main__":
     app_variables["cyclic_ref"]["self"] = app_variables["cyclic_ref"]
 
     app = QApplication(sys.argv)
+    app_variables = app_variables
     viewer = VariableViewer(app_variables)
+    # Use the same `app_variables` reference in both methods
+    viewer.add_console(app_variables)
     viewer.show()
-    # Modify variables after viewer is shown
-    app_variables["string_var"] = "Updated String"
-    app_variables["nested_dict"]["a"] = "updated"
-    # Modify custom object
-    person_john.age = 31
-    person_john.car.engine.horsepower = 500
+
+    def update_variables_after_show(app_variables, person_john):
+        """Whatever you want to do once the GUI is displayed."""
+        app_variables["string_var"] = "Updated String"
+        app_variables["nested_dict"]["a"] = "updated"
+        # Modify custom object
+        person_john.age = 31
+        person_john.car.engine.horsepower = 500
+        logging.info(f"update_variables_after_show")
+
+    # Schedule the modifications to happen once the event loop starts
+    QTimer.singleShot(5000, lambda: update_variables_after_show(app_variables, person_john))
     sys.exit(app.exec())

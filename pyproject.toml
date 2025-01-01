@@ -6,11 +6,16 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "PyQt6>=6.5.1",
+    "dill>=0.3.9",
     "h5py>=3.12.1",
     "hdf5storage>=0.1.19",
+    "ipykernel>=6.29.5",
+    "jupyter-client>=8.6.3",
+    "jupyter-core>=5.7.2",
     "numpy<2.0.0",
     "pillow>=11.0.0",
     "pytest-mock>=3.14.0",
+    "qtconsole>=5.6.1",
     "scipy>=1.14.1",
     "torch>=2.0.0",
 ]
