@@ -1,14 +1,15 @@
-# variables.py
+# src/variables.py
 from PyQt6.QtCore import QObject, pyqtSignal
 import logging
+
 
 class Variables(QObject):
     """
     A centralized class to manage application variables.
-    Emits signals when variables are updated to notify observers.
+    Emits signals when variables are added, updated, or removed.
     """
-    variable_updated = pyqtSignal(str)
     variable_added = pyqtSignal(str)
+    variable_updated = pyqtSignal(str)
     variable_removed = pyqtSignal(str)
 
     def __init__(self):
@@ -82,14 +83,20 @@ class Variables(QObject):
         Allow setting variables as attributes.
         Emit appropriate signals on changes.
         """
-        if name in ["_variables", "variable_updated", "variable_added", "variable_removed"]:
+        # Prevent recursion for internal attributes
+        if name in ["_variables", "variable_added", "variable_updated", "variable_removed"]:
             super().__setattr__(name, value)
         else:
             if name in self._variables:
-                self._variables[name] = value
-                self.variable_updated.emit(name)
+                self.update_variable(name, value)
                 logging.info(f"Updated variable '{name}' via attribute.")
             else:
-                self._variables[name] = value
-                self.variable_added.emit(name)
+                self.add_variable(name, value)
                 logging.info(f"Added variable '{name}' via attribute.")
+
+    def __dir__(self):
+        """
+        Customize the list of attributes returned by dir().
+        Includes only the dynamic variables.
+        """
+        return list(self._variables.keys())

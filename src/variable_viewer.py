@@ -1,4 +1,4 @@
-# variable_viewer.py
+# src/variable_viewer.py
 import logging
 import inspect
 import re
@@ -7,13 +7,15 @@ import numpy as np
 import torch
 from PyQt6.QtWidgets import (
     QMainWindow, QTreeView, QVBoxLayout, QWidget, QMenu, QMessageBox,
-    QHeaderView, QApplication
+    QHeaderView
 )
 from PyQt6.QtGui import QStandardItemModel, QStandardItem, QAction
-from PyQt6.QtCore import Qt, QObject
+from PyQt6.QtCore import Qt, QTimer, QObject
 from variable_exporter import VariableExporter  # Ensure you have this module
 from qtconsole.rich_jupyter_widget import RichJupyterWidget
 from qtconsole.inprocess import QtInProcessKernelManager
+from PyQt6.QtWidgets import QApplication
+
 
 class VariableViewer(QMainWindow):
     def __init__(self, variables_instance):
@@ -25,7 +27,18 @@ class VariableViewer(QMainWindow):
 
     def initUI(self):
         self.setWindowTitle("Variable Viewer")
-        self.resize(1040, 800)
+        self.resize(800, 600)
+
+        # Menu Bar
+        menubar = self.menuBar()
+        view_menu = menubar.addMenu('View')
+
+        # "Update" Action
+        update_action = QAction('Update', self)
+        update_action.setShortcut('Ctrl+R')
+        update_action.setStatusTip('Refresh the Variable Viewer')
+        update_action.triggered.connect(self.refresh_view)  # Connect to refresh_view
+        view_menu.addAction(update_action)
 
         # Central widget
         central_widget = QWidget()
@@ -83,23 +96,21 @@ class VariableViewer(QMainWindow):
         Refresh the entire view by clearing and repopulating the model.
         This captures the current state of variables.
         """
+        logging.info("Refreshing Variable Viewer...")
         self.model.clear()
         self.model.setHorizontalHeaderLabels(["Variable", "Type", "Value", "Memory"])
-        for name, value in self.variables_instance.get_all_variables().items():
+        all_vars = self.variables_instance.get_all_variables()
+        logging.debug(f"All variables to load: {list(all_vars.keys())}")
+        for name, value in all_vars.items():
             self.add_variable(name, value, self.model.invisibleRootItem())
         # Adjust column sizes after initial load
         self.resize_all_columns()
+        logging.info("Variable Viewer refreshed.")
 
     def add_variable(self, name, value, parent_item, lazy_load=True):
         try:
             # Determine the type
             value_type = type(value).__name__
-
-            # Append dtype or equivalent if applicable
-            if isinstance(value, np.ndarray):
-                value_type += f" ({value.dtype})"
-            elif isinstance(value, torch.Tensor):
-                value_type += f" ({value.dtype})"
 
             # Format the value nicely
             formatted_value = self.format_value(value)
@@ -124,13 +135,18 @@ class VariableViewer(QMainWindow):
             # Append items to the parent
             parent_item.appendRow([item_name, item_type, item_value, item_memory])
 
+            # Log addition
+            logging.debug(
+                f"Added variable '{name}' of type '{value_type}' with value '{formatted_value}'.")
+
             # Add a placeholder for lazy loading if the variable can be expanded
             if lazy_load and self.can_expand(value):
                 placeholder = QStandardItem("Loading...")
                 # Placeholder should not be draggable
                 placeholder.setEditable(False)
                 # Append a full row with placeholder and empty items for other columns
-                item_name.appendRow([placeholder, QStandardItem(), QStandardItem(), QStandardItem()])
+                item_name.appendRow(
+                    [placeholder, QStandardItem(), QStandardItem(), QStandardItem()])
         except Exception as e:
             logging.error(f"Error adding variable '{name}': {e}")
             parent_item.appendRow([
@@ -143,15 +159,8 @@ class VariableViewer(QMainWindow):
     def calculate_memory_usage(self, value):
         """Calculate memory usage of a variable and format it with appropriate units."""
         try:
-            bytes_size = 0
-            if isinstance(value, np.ndarray):
-                bytes_size = value.nbytes
-            elif isinstance(value, torch.Tensor):
-                bytes_size = value.element_size() * value.numel()
-            else:
-                # Fallback for standard Python objects
-                import sys
-                bytes_size = sys.getsizeof(value)
+            import sys
+            bytes_size = sys.getsizeof(value)
 
             # Format the size into appropriate units
             units = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -168,7 +177,7 @@ class VariableViewer(QMainWindow):
 
     def can_expand(self, value):
         """Check if a variable can be expanded."""
-        return isinstance(value, (list, tuple, dict, QObject)) or hasattr(value, '__dict__')
+        return isinstance(value, (dict, list, QObject))
 
     def handle_expand(self, index):
         """Handle lazy loading when a tree item is expanded."""
@@ -190,31 +199,47 @@ class VariableViewer(QMainWindow):
     def load_children(self, parent_item, value):
         """Load and display children of a variable."""
         try:
-            if isinstance(value, (list, tuple)):
-                for i, sub_value in enumerate(value):
-                    self.add_variable(f"[{i}]", sub_value, parent_item)
+            if isinstance(value, list):
+                logging.debug(f"Loading children for list: {parent_item.text()}")
+                for index, sub_value in enumerate(value):
+                    self.add_variable(f"[{index}]", sub_value, parent_item)
             elif isinstance(value, dict):
+                logging.debug(f"Loading children for dict: {parent_item.text()}")
                 for key, sub_value in value.items():
                     self.add_variable(str(key), sub_value, parent_item)
-            elif isinstance(value, QObject):
-                for attr in dir(value):
-                    if not attr.startswith("_"):  # Skip private or special methods
-                        try:
-                            attr_value = getattr(value, attr)
-                            if inspect.ismethod(attr_value):
-                                self.add_method(attr, attr_value, parent_item)
-                            else:
-                                self.add_variable(attr, attr_value, parent_item)
-                        except Exception as e:
-                            logging.error(f"Error accessing attribute '{attr}': {e}")
-                            self.add_variable(attr, f"<Error: {e}>", parent_item, lazy_load=False)
-            elif hasattr(value, '__dict__'):
+            elif inspect.isclass(value):
+                # Skip classes to prevent unwanted entries
+                logging.debug(f"Skipping class '{value.__name__}'.")
+                return
+            elif hasattr(value, '__dict__') and not isinstance(value, QObject):
+                # For non-QObject instances, iterate over __dict__
+                logging.debug(f"Loading children for object: {parent_item.text()}")
                 for attr_name, attr_value in vars(value).items():
+                    if attr_name.startswith("_"):
+                        logging.debug(f"Skipping private attribute '{attr_name}'.")
+                        continue  # Skip private attributes
+                    if callable(attr_value):
+                        logging.debug(f"Skipping method '{attr_name}'.")
+                        continue  # Skip methods
                     self.add_variable(attr_name, attr_value, parent_item)
-
-                # Add methods separately for better organization
-                for name, method in inspect.getmembers(value, predicate=inspect.ismethod):
-                    self.add_method(name, method, parent_item)
+            elif isinstance(value, QObject):
+                # For QObject instances, iterate over properties without leading underscores and non-callable
+                logging.debug(f"Loading children for QObject: {parent_item.text()}")
+                for attr in dir(value):
+                    if attr.startswith("_"):
+                        logging.debug(f"Skipping private attribute '{attr}'.")
+                        continue  # Skip private attributes
+                    try:
+                        attr_value = getattr(value, attr)
+                        if callable(attr_value):
+                            logging.debug(f"Skipping method '{attr}'.")
+                            continue  # Skip methods
+                        self.add_variable(attr, attr_value, parent_item)
+                    except Exception as e:
+                        logging.error(f"Error accessing attribute '{attr}': {e}")
+                        self.add_variable(attr, f"<Error: {e}>", parent_item,
+                                          lazy_load=False)
+            # Add more type handlers if necessary
 
             # After loading children, adjust column sizes
             self.resize_all_columns()
@@ -228,102 +253,25 @@ class VariableViewer(QMainWindow):
                 QStandardItem("N/A")
             ])
 
-    def add_method(self, name, method, parent_item):
-        """Add a method to the tree."""
-        try:
-            method_item = QStandardItem(name)
-            method_type = QStandardItem("Method")
-            method_value = QStandardItem(str(method))
-
-            # Prevent editing and enable dragging
-            for item in [method_item, method_type, method_value]:
-                item.setEditable(False)
-                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsDragEnabled)
-
-            # Append an empty item for the Memory column to maintain consistency
-            parent_item.appendRow([method_item, method_type, method_value, QStandardItem()])
-        except Exception as e:
-            logging.error(f"Error adding method '{name}': {e}")
-            parent_item.appendRow([
-                QStandardItem(name),
-                QStandardItem("Error"),
-                QStandardItem(f"<Error: {e}>"),
-                QStandardItem("N/A")
-            ])
-
-    def resolve_item_path(self, item):
-        """Get the full path of the variable represented by the tree item."""
-        parts = []
-        current_item = item
-        while current_item is not None:
-            parts.append(current_item.text())
-            current_item = current_item.parent()
-        # Reverse to get path from root to the item
-        parts.reverse()
-
-        # Build the path, handling list indices appropriately
-        path = ""
-        for part in parts:
-            if part.startswith("[") and path:
-                # Do NOT insert a dot before list indices
-                path += part  # This results in "list_obj[0].car.owner.age"
-            else:
-                if path:
-                    path += "." + part
-                else:
-                    path = part
-        return path
-
-    def resolve_variable(self, path):
-        """Resolve a variable path to its value."""
-        try:
-            # Use regex to split the path into components
-            pattern = re.compile(r'\w+|\[\d+\]')
-            components = pattern.findall(path)
-            value = self.variables_instance.get_variable(components[0])
-            for comp in components[1:]:
-                if comp.startswith("[") and comp.endswith("]"):
-                    # It's a list or tuple index
-                    index = int(comp[1:-1])
-                    value = value[index]
-                else:
-                    # It's an attribute or dict key
-                    if isinstance(value, dict):
-                        value = value.get(comp, None)
-                    else:
-                        value = getattr(value, comp, None)
-                if value is None:
-                    return None
-            return value
-        except Exception as e:
-            logging.error(f"Error resolving variable '{path}': {e}")
-            return None
-
     def format_value(self, value):
         """Format the value for display, always sampling the first five elements of large data."""
         try:
             if isinstance(value, str):
                 return value if len(value) <= 50 else value[:47] + "..."
-            elif isinstance(value, (list, tuple, dict)):
-                return f"{type(value).__name__}[{len(value)}]"
-            elif isinstance(value, np.ndarray):
-                flattened = value.flatten()
-                # Sample first 5 elements
-                sample = flattened[:5] if flattened.size >= 5 else flattened
-                return f"ndarray{value.shape}: {sample.tolist()}..."
-            elif isinstance(value, torch.Tensor):
-                # Avoid accessing 'imag' for non-complex tensors
-                if torch.is_complex(value):
-                    sample = value.flatten().tolist()[:5]
-                    return f"Tensor{tuple(value.shape)}: {sample}..."
+            elif isinstance(value, (list, dict)):
+                return f"{type(value).__name__}({len(value)})"
+            elif isinstance(value, QObject):
+                return f"<{type(value).__name__}>"
+            elif isinstance(value, (np.ndarray, torch.Tensor)):
+                if isinstance(value, np.ndarray):
+                    shape = value.shape
+                    sample = value.flatten()[:5].tolist()
                 else:
-                    flattened = value.flatten().tolist()
-                    # Sample first 5 elements
-                    sample = flattened[:5] if len(flattened) >= 5 else flattened
-                    return f"Tensor{tuple(value.shape)}: {sample}..."
-            elif hasattr(value, '__dict__'):  # Objects with attributes
-                return "{...}"
-            return str(value)
+                    shape = tuple(value.shape)
+                    sample = value.flatten()[:5].tolist()
+                return f"{type(value).__name__}{shape}: {sample}..."
+            else:
+                return str(value)
         except Exception as e:
             logging.error(f"Error formatting value: {e}")
             return "<Error>"
@@ -419,14 +367,14 @@ class VariableViewer(QMainWindow):
             item = self.model.item(row, 0)  # Get the Variable column item
             if item:
                 path = self.resolve_item_path(item)
-                current_value = self.resolve_variable(path)
-                if current_value is not None:
+                value = self.resolve_variable(path)
+                if value is not None:
                     # Update Type, Value, and Memory columns only for root nodes
                     if item.parent() is None:
-                        self.model.item(row, 1).setText(type(current_value).__name__)
-                        formatted_value = self.format_value(current_value)
+                        self.model.item(row, 1).setText(type(value).__name__)
+                        formatted_value = self.format_value(value)
                         self.model.item(row, 2).setText(formatted_value)
-                        memory_usage = self.calculate_memory_usage(current_value)
+                        memory_usage = self.calculate_memory_usage(value)
                         self.model.item(row, 3).setText(memory_usage)
                 else:
                     # Handle cases where the variable could not be resolved
@@ -489,6 +437,7 @@ class VariableViewer(QMainWindow):
 
     def on_variable_updated(self, name):
         """Handle a variable being updated."""
+        logging.info(f"Variable '{name}' has been updated.")
         # Find the top-level item matching the variable_name
         root = self.model.invisibleRootItem()
         for row in range(root.rowCount()):
@@ -502,10 +451,14 @@ class VariableViewer(QMainWindow):
                     self.model.item(row, 2).setText(formatted_value)
                     memory_usage = self.calculate_memory_usage(value)
                     self.model.item(row, 3).setText(memory_usage)
+                    logging.info(f"Updated display for variable '{name}'.")
                 else:
                     self.model.item(row, 2).setText("<Unavailable>")
                     self.model.item(row, 3).setText("N/A")
+                    logging.warning(f"Variable '{name}' is now unavailable.")
                 break
+        else:
+            logging.warning(f"Variable '{name}' not found in the viewer.")
 
     def on_variable_removed(self, name):
         """Handle a variable being removed."""
@@ -516,3 +469,67 @@ class VariableViewer(QMainWindow):
             if item.text() == name:
                 self.model.removeRow(row)
                 break
+
+    def resolve_item_path(self, item):
+        """Get the full path of the variable represented by the tree item."""
+        parts = []
+        current_item = item
+        while current_item is not None:
+            parts.append(current_item.text())
+            current_item = current_item.parent()
+        # Reverse to get path from root to the item
+        parts.reverse()
+
+        # Build the path, handling list indices appropriately
+        path = ""
+        for part in parts:
+            if re.match(r'\[\d+\]', part):
+                # It's a list index, append without dot
+                path += part
+            else:
+                if path:
+                    path += "." + part
+                else:
+                    path = part
+        return path
+
+    def resolve_variable(self, path):
+        """Resolve a variable path to its value."""
+        try:
+            # Split the path into components
+            pattern = re.compile(r'\w+|\[\d+\]')
+            components = pattern.findall(path)
+            if not components:
+                return None
+            value = self.variables_instance.get_variable(components[0])
+            for comp in components[1:]:
+                if comp.startswith("[") and comp.endswith("]"):
+                    # It's a list index
+                    index = int(comp[1:-1])
+                    if isinstance(value, list):
+                        if 0 <= index < len(value):
+                            value = value[index]
+                        else:
+                            return None
+                    else:
+                        return None
+                else:
+                    # It's an attribute or dict key
+                    if isinstance(value, dict):
+                        value = value.get(comp, None)
+                    elif isinstance(value, list):
+                        if comp.isdigit():
+                            idx = int(comp)
+                            value = value[idx] if idx < len(value) else None
+                        else:
+                            return None
+                    elif hasattr(value, comp):
+                        value = getattr(value, comp, None)
+                    else:
+                        return None
+                if value is None:
+                    return None
+            return value
+        except Exception as e:
+            logging.error(f"Error resolving variable '{path}': {e}")
+            return None
