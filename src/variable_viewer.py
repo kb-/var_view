@@ -371,30 +371,63 @@ class VariableViewer(QMainWindow):
 
     def update_selected_variables(self, indexes):
         """
-        Update the selected variables by re-fetching their current values.
+        Update the selected variables by reloading their entries in the tree.
         Supports multiple selections.
         """
-        # Extract unique rows (variables) from selected indexes
         selected_rows = set()
         for index in indexes:
-            if index.column() == 0:  # Variable column
+            if index.column() == 0:  # Only process the "Variable" column
                 selected_rows.add(index.row())
 
-        # Iterate over unique selected rows
         for row in selected_rows:
-            item = self.model.item(row, 0)  # Get the Variable column item
+            item = self.model.item(row, 0)  # Get the variable's tree item
             if item:
-                path = self.resolve_item_path(item)  # Get full path of the variable
-                value = self.resolve_variable(
-                    path)  # Resolve the current value directly
+                path = self.resolve_item_path(item)  # Get the variable's path
+                value = self.resolve_variable(path)  # Fetch the current value
                 if value is not None:
-                    # Update the tree item and refresh children if needed
-                    self.update_tree_item(item, value, path)
+                    self.unload_and_reload_item(item, value, path)
                 else:
-                    # Handle cases where the variable could not be resolved
-                    self.model.item(row, 2).setText("<Unavailable>")
-                    self.model.item(row, 3).setText("N/A")
                     logging.warning(f"Variable '{path}' is unavailable.")
+
+    def unload_and_reload_item(self, item, value, path):
+        """
+        Unload and reload a tree item to reflect updated values.
+        """
+        try:
+            # Clear existing children
+            item.removeRows(0, item.rowCount())
+            logging.info(f"Unloaded children for variable '{path}'.")
+
+            # Reload children if the variable can be expanded
+            if self.can_expand(value):
+                self.load_children(item, value)
+                logging.info(f"Reloaded children for variable '{path}'.")
+            else:
+                logging.info(f"Variable '{path}' is not expandable.")
+        except Exception as e:
+            logging.error(f"Error unloading and reloading item '{path}': {e}")
+
+    def update_all_references(self, item, value, path):
+        """
+        Update all tree items referencing the same object.
+        """
+        try:
+            # Iterate through all rows in the model
+            for row in range(self.model.rowCount()):
+                sibling_item = self.model.item(row, 0)  # Get the variable tree item
+                sibling_path = self.resolve_item_path(sibling_item)
+                sibling_value = self.resolve_variable(sibling_path)
+
+                # Check if the sibling references the same object
+                if sibling_value is value:
+                    self.update_tree_item(sibling_item, sibling_value, sibling_path)
+                    logging.info(f"Updated display for shared object '{path}'.")
+
+            # Update the originally selected item
+            self.update_tree_item(item, value, path)
+        except Exception as e:
+            logging.error(f"Error updating all references for '{path}': {e}")
+
 
     def update_tree_item(self, item, value, path):
         """
