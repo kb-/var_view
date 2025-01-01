@@ -29,17 +29,6 @@ class VariableViewer(QMainWindow):
         self.setWindowTitle("Variable Viewer")
         self.resize(800, 600)
 
-        # Menu Bar
-        menubar = self.menuBar()
-        view_menu = menubar.addMenu('View')
-
-        # "Update" Action
-        update_action = QAction('Update', self)
-        update_action.setShortcut('Ctrl+R')
-        update_action.setStatusTip('Refresh the Variable Viewer')
-        update_action.triggered.connect(self.refresh_view)  # Connect to refresh_view
-        view_menu.addAction(update_action)
-
         # Central widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -50,7 +39,7 @@ class VariableViewer(QMainWindow):
         layout.addWidget(self.tree_view)
 
         # Set custom model
-        self.model = QStandardItemModel()
+        self.model = VariableStandardItemModel(self)
         self.model.setHorizontalHeaderLabels(["Variable", "Type", "Value", "Memory"])
         self.tree_view.setModel(self.model)
 
@@ -639,3 +628,38 @@ class VariableViewer(QMainWindow):
                     path += f'.{part}'
                     value = getattr(value, part, None)
         return path
+
+
+class VariableStandardItemModel(QStandardItemModel):
+    def __init__(self, viewer, parent=None):
+        super().__init__(parent)
+        self.viewer = viewer  # Reference to VariableViewer
+
+    def supportedDragActions(self):
+        return Qt.DropAction.CopyAction
+
+    def mimeData(self, indexes):
+        mime_data = super().mimeData(indexes)
+        paths = []
+        for index in indexes:
+            if index.column() != 0:
+                # Skip non-variable columns
+                continue
+            item = self.itemFromIndex(index)
+            if item:
+                path = self.viewer.resolve_item_path(item)
+                paths.append(path)
+        if paths:
+            mime_data.setText("\n".join(paths))
+            logging.debug(f"Dragging variable paths: {paths}")
+        return mime_data
+
+    def flags(self, index):
+        if not index.isValid():
+            return Qt.ItemFlag.NoItemFlags
+        if index.column() == 0:
+            return super().flags(index) | Qt.ItemFlag.ItemIsDragEnabled
+        else:
+            return super().flags(index)
+
+
