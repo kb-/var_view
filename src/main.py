@@ -71,11 +71,11 @@ def main():
     app_variables.set_variable("list_var", [1, 2, 3, 4, 5])
     app_variables.set_variable("nested_dict", {"a": 1, "b": {"c": 2, "d": 3}})
     app_variables.set_variable("numpy_array", np.random.rand(100, 100))
-    app_variables.set_variable("torch_tensor", torch.rand(10, 10).to(device))
+    app_variables.set_variable("torch_tensor", torch.rand(10, 10))
     app_variables.set_variable("string_var", "Try right click update!")
     app_variables.set_variable("test_obj", person_john)  # Custom object
     app_variables.set_variable("list_obj", [person_john, person_john, person_john])
-    app_variables.set_variable("huge_tensor", torch.rand(10000, 10000))
+    app_variables.set_variable("huge_tensor", torch.rand(10000, 10000).to(device))
     app_variables.set_variable("complex_nested_dict", {
         "level1": {
             "level2": {

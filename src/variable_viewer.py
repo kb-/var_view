@@ -154,8 +154,12 @@ class VariableViewer(QMainWindow):
     def calculate_memory_usage(self, value):
         """Calculate memory usage of a variable and format it with appropriate units."""
         try:
-            import sys
-            bytes_size = sys.getsizeof(value)
+            if hasattr(value, 'nbytes'):  # Handles both torch.Tensor and np.ndarray
+                bytes_size = value.nbytes
+            else:
+                # Fallback for standard Python objects
+                import sys
+                bytes_size = sys.getsizeof(value)
 
             # Format the size into appropriate units
             units = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -262,22 +266,26 @@ class VariableViewer(QMainWindow):
             ])
 
     def format_value(self, value):
-        """Format the value for display, always sampling the first five elements of large data."""
+        """Format the value for display, sampling the first five elements of large data."""
         try:
             if isinstance(value, str):
                 return value if len(value) <= 50 else value[:47] + "..."
             elif isinstance(value, (list, dict)):
                 return f"{type(value).__name__}({len(value)})"
+            elif isinstance(value, torch.Tensor):
+                # Handle Torch Tensors
+                shape = tuple(value.shape)
+                dtype = value.dtype
+                sample = value.flatten().tolist()[:5]  # Sample first 5 elements
+                return f"Tensor{shape} ({dtype}): {sample}..."
+            elif isinstance(value, np.ndarray):
+                # Handle NumPy Arrays
+                shape = value.shape
+                dtype = value.dtype
+                sample = value.flatten()[:5].tolist()  # Sample first 5 elements
+                return f"ndarray{shape} ({dtype}): {sample}..."
             elif hasattr(value, '__dict__') and not isinstance(value, QObject):
                 return f"<{type(value).__name__}>"
-            elif isinstance(value, (np.ndarray, torch.Tensor)):
-                if isinstance(value, np.ndarray):
-                    shape = value.shape
-                    sample = value.flatten()[:5].tolist()
-                else:
-                    shape = tuple(value.shape)
-                    sample = value.flatten()[:5].tolist()
-                return f"{type(value).__name__}{shape}: {sample}..."
             else:
                 return str(value)
         except Exception as e:
