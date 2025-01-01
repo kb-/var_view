@@ -384,22 +384,43 @@ class VariableViewer(QMainWindow):
         for row in selected_rows:
             item = self.model.item(row, 0)  # Get the Variable column item
             if item:
-                path = self.resolve_item_path(item)
-                value = self.resolve_variable(path)
+                path = self.resolve_item_path(item)  # Get full path of the variable
+                value = self.resolve_variable(
+                    path)  # Resolve the current value directly
                 if value is not None:
-                    # Update Type, Value, and Memory columns only for root nodes
-                    if item.parent() is None:
-                        self.model.item(row, 1).setText(type(value).__name__)
-                        formatted_value = self.format_value(value)
-                        self.model.item(row, 2).setText(formatted_value)
-                        memory_usage = self.calculate_memory_usage(value)
-                        self.model.item(row, 3).setText(memory_usage)
-                        logging.info(f"Updated variable '{path}'.")
+                    # Update the tree item and refresh children if needed
+                    self.update_tree_item(item, value, path)
                 else:
                     # Handle cases where the variable could not be resolved
                     self.model.item(row, 2).setText("<Unavailable>")
                     self.model.item(row, 3).setText("N/A")
                     logging.warning(f"Variable '{path}' is unavailable.")
+
+    def update_tree_item(self, item, value, path):
+        """
+        Update the tree item and its sub-items based on the new value.
+        """
+        try:
+            # Update Type, Value, and Memory columns
+            self.model.itemFromIndex(
+                item.index().sibling(item.index().row(), 1)).setText(
+                type(value).__name__)
+            formatted_value = self.format_value(value)
+            self.model.itemFromIndex(
+                item.index().sibling(item.index().row(), 2)).setText(formatted_value)
+            memory_usage = self.calculate_memory_usage(value)
+            self.model.itemFromIndex(
+                item.index().sibling(item.index().row(), 3)).setText(memory_usage)
+            logging.info(f"Updated display for variable '{path}'.")
+
+            # Clear existing children
+            item.removeRows(0, item.rowCount())
+
+            # Reload children if the variable is expandable
+            if self.can_expand(value):
+                self.load_children(item, value)
+        except Exception as e:
+            logging.error(f"Error updating tree item '{path}': {e}")
 
     def copy_variable_path(self, indexes):
         """Copy the full path of the selected variables to the clipboard."""
@@ -526,35 +547,26 @@ class VariableViewer(QMainWindow):
             components = pattern.findall(path)
             if not components:
                 return None
-            value = self.variables_instance.get_variable(components[0])
+            value = self.variables_instance.get_variable(
+                components[0])  # Fetch root variable
             for comp in components[1:]:
                 if comp.startswith("[") and comp.endswith("]"):
                     # It's a list index
                     index = int(comp[1:-1])
                     if isinstance(value, list):
-                        if 0 <= index < len(value):
-                            value = value[index]
-                        else:
-                            return None
+                        value = value[index] if 0 <= index < len(value) else None
                     else:
                         return None
                 else:
                     # It's an attribute or dict key
                     if isinstance(value, dict):
                         value = value.get(comp, None)
-                    elif isinstance(value, list):
-                        if comp.isdigit():
-                            idx = int(comp)
-                            value = value[idx] if idx < len(value) else None
-                        else:
-                            return None
                     elif hasattr(value, comp):
                         value = getattr(value, comp, None)
                     else:
                         return None
-                if value is None:
-                    return None
             return value
         except Exception as e:
             logging.error(f"Error resolving variable '{path}': {e}")
             return None
+
