@@ -183,7 +183,9 @@ class VariableViewer(QMainWindow):
 
     def can_expand(self, value):
         """Check if a variable can be expanded."""
-        return isinstance(value, (dict, list, QObject))
+        return isinstance(value, (dict, list, QObject)) or (
+            hasattr(value, '__dict__') and not isinstance(value, (str, bytes))
+        )
 
     def handle_expand(self, index):
         """Handle lazy loading when a tree item is expanded."""
@@ -277,7 +279,7 @@ class VariableViewer(QMainWindow):
                 return value if len(value) <= 50 else value[:47] + "..."
             elif isinstance(value, (list, dict)):
                 return f"{type(value).__name__}({len(value)})"
-            elif isinstance(value, QObject):
+            elif hasattr(value, '__dict__') and not isinstance(value, QObject):
                 return f"<{type(value).__name__}>"
             elif isinstance(value, (np.ndarray, torch.Tensor)):
                 if isinstance(value, np.ndarray):
