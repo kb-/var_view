@@ -16,7 +16,6 @@ from qtconsole.rich_jupyter_widget import RichJupyterWidget
 from qtconsole.inprocess import QtInProcessKernelManager
 from PyQt6.QtWidgets import QApplication
 
-
 class VariableViewer(QMainWindow):
     def __init__(self, variables_instance):
         super().__init__()
@@ -416,7 +415,6 @@ class VariableViewer(QMainWindow):
         except Exception as e:
             logging.error(f"Error updating all references for '{path}': {e}")
 
-
     def update_tree_item(self, item, value, path):
         """
         Update the tree item and its sub-items based on the new value.
@@ -537,6 +535,47 @@ class VariableViewer(QMainWindow):
         else:
             logging.warning(f"Variable '{name}' not found in the viewer.")
 
+    def resolve_variable(self, path):
+        """Resolve a variable path to its value."""
+        try:
+            # Split the path into components
+            pattern = re.compile(r'\w+|\["[^"]*"\]|\[\d+\]')
+            components = pattern.findall(path)
+            if not components:
+                return None
+            value = self.variables_instance.get_variable(
+                components[0])  # Fetch root variable
+            for comp in components[1:]:
+                if comp.startswith("[") and comp.endswith("]"):
+                    if '"' in comp:
+                        # It's a dictionary key with ["key"] syntax
+                        key = comp.strip('["]')
+                        if isinstance(value, dict):
+                            value = value.get(key, None)
+                        else:
+                            return None
+                    else:
+                        # It's a list index [index]
+                        index = int(comp.strip("[]"))
+                        if isinstance(value, list):
+                            value = value[index] if 0 <= index < len(value) else None
+                        else:
+                            return None
+                elif comp.startswith("."):
+                    # It's an object attribute .attr
+                    attr = comp.strip(".")
+                    if hasattr(value, attr):
+                        value = getattr(value, attr, None)
+                    else:
+                        return None
+                else:
+                    # Fallback for unexpected format
+                    return None
+            return value
+        except Exception as e:
+            logging.error(f"Error resolving variable '{path}': {e}")
+            return None
+
     def resolve_item_path(self, item):
         """Get the full path of the variable represented by the tree item."""
         parts = []
@@ -547,47 +586,34 @@ class VariableViewer(QMainWindow):
         # Reverse to get path from root to the item
         parts.reverse()
 
-        # Build the path, handling list indices appropriately
         path = ""
-        for part in parts:
-            if re.match(r'\[\d+\]', part):
-                # It's a list index, append without dot
-                path += part
+        value = None
+        for i, part in enumerate(parts):
+            if i == 0:
+                # Root variable
+                path = part
+                value = self.variables_instance.get_variable(part)
             else:
-                if path:
-                    path += "." + part
+                if isinstance(value, list):
+                    # part should be [index]
+                    path += part
+                    try:
+                        index = int(part.strip("[]"))
+                        value = value[index]
+                    except (ValueError, IndexError, TypeError):
+                        value = None
+                elif isinstance(value, dict):
+                    # part is a key
+                    # Escape quotes in key if necessary
+                    escaped_key = part.replace('"', '\\"')
+                    path += f'["{escaped_key}"]'
+                    value = value.get(part, None)
+                elif hasattr(value, part):
+                    # part is an attribute
+                    path += f'.{part}'
+                    value = getattr(value, part, None)
                 else:
-                    path = part
+                    # Unknown type, default to dot notation
+                    path += f'.{part}'
+                    value = getattr(value, part, None)
         return path
-
-    def resolve_variable(self, path):
-        """Resolve a variable path to its value."""
-        try:
-            # Split the path into components
-            pattern = re.compile(r'\w+|\[\d+\]')
-            components = pattern.findall(path)
-            if not components:
-                return None
-            value = self.variables_instance.get_variable(
-                components[0])  # Fetch root variable
-            for comp in components[1:]:
-                if comp.startswith("[") and comp.endswith("]"):
-                    # It's a list index
-                    index = int(comp[1:-1])
-                    if isinstance(value, list):
-                        value = value[index] if 0 <= index < len(value) else None
-                    else:
-                        return None
-                else:
-                    # It's an attribute or dict key
-                    if isinstance(value, dict):
-                        value = value.get(comp, None)
-                    elif hasattr(value, comp):
-                        value = getattr(value, comp, None)
-                    else:
-                        return None
-            return value
-        except Exception as e:
-            logging.error(f"Error resolving variable '{path}': {e}")
-            return None
-
