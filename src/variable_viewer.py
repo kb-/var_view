@@ -16,6 +16,7 @@ from qtconsole.rich_jupyter_widget import RichJupyterWidget
 from qtconsole.inprocess import QtInProcessKernelManager
 from PyQt6.QtWidgets import QApplication
 
+
 class VariableViewer(QMainWindow):
     def __init__(self, variables_instance):
         super().__init__()
@@ -538,13 +539,18 @@ class VariableViewer(QMainWindow):
     def resolve_variable(self, path):
         """Resolve a variable path to its value."""
         try:
-            # Split the path into components
-            pattern = re.compile(r'\w+|\["[^"]*"\]|\[\d+\]')
+            # Updated pattern to include dot-prefixed attributes
+            pattern = re.compile(r'\w+|\.\w+|\["[^"]*"\]|\[\d+\]')
             components = pattern.findall(path)
             if not components:
                 return None
-            value = self.variables_instance.get_variable(
-                components[0])  # Fetch root variable
+            # Initialize value with the root variable
+            root_component = components[0]
+            value = self.variables_instance.get_variable(root_component)
+            if value is None:
+                logging.error(f"Root variable '{root_component}' not found.")
+                return None
+            # Iterate over the rest of the components
             for comp in components[1:]:
                 if comp.startswith("[") and comp.endswith("]"):
                     if '"' in comp:
@@ -552,24 +558,38 @@ class VariableViewer(QMainWindow):
                         key = comp.strip('["]')
                         if isinstance(value, dict):
                             value = value.get(key, None)
+                            if value is None:
+                                logging.error(f"Key '{key}' not found in dict '{root_component}'.")
+                                return None
                         else:
+                            logging.error(f"Expected dict for key access, got {type(value).__name__}")
                             return None
                     else:
                         # It's a list index [index]
                         index = int(comp.strip("[]"))
                         if isinstance(value, list):
-                            value = value[index] if 0 <= index < len(value) else None
+                            if 0 <= index < len(value):
+                                value = value[index]
+                            else:
+                                logging.error(f"List index {index} out of range for '{path}'.")
+                                return None
                         else:
+                            logging.error(f"Expected list for index access, got {type(value).__name__}")
                             return None
                 elif comp.startswith("."):
                     # It's an object attribute .attr
                     attr = comp.strip(".")
                     if hasattr(value, attr):
                         value = getattr(value, attr, None)
+                        if value is None:
+                            logging.error(f"Attribute '{attr}' of '{path}' is None.")
+                            return None
                     else:
+                        logging.error(f"Attribute '{attr}' not found in {type(value).__name__}.")
                         return None
                 else:
                     # Fallback for unexpected format
+                    logging.error(f"Unexpected path component '{comp}' in path '{path}'.")
                     return None
             return value
         except Exception as e:
@@ -596,7 +616,7 @@ class VariableViewer(QMainWindow):
             else:
                 if isinstance(value, list):
                     # part should be [index]
-                    path += part
+                    path += part  # part is like [0]
                     try:
                         index = int(part.strip("[]"))
                         value = value[index]
