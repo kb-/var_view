@@ -27,7 +27,7 @@ class VariableViewer(QMainWindow):
 
     def initUI(self):
         self.setWindowTitle("Variable Viewer")
-        self.resize(800, 600)
+        self.resize(1060, 800)
 
         # Central widget
         central_widget = QWidget()
@@ -52,7 +52,7 @@ class VariableViewer(QMainWindow):
         header = self.tree_view.header()
         for i in range(self.model.columnCount()):
             header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
-            header.setMinimumSectionSize(100)  # Adjust as needed
+            header.setMinimumSectionSize(50)  # Adjust as needed
 
         # Connect expand signal for lazy loading
         self.tree_view.expanded.connect(self.handle_expand)
@@ -63,9 +63,6 @@ class VariableViewer(QMainWindow):
 
         # Load root variables
         self.refresh_view()
-
-        # After loading data, adjust column sizes
-        self.resize_all_columns()
 
     def connect_signals(self):
         """
