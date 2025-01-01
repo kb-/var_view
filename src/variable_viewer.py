@@ -65,8 +65,14 @@ class VariableViewer(QMainWindow):
 
     def connect_signals(self):
         """
-        Connect signals from Variables instance to the viewer.
+        Connect signals from the data source to the viewer.
         """
+        if hasattr(self.data_source, 'variable_added'):
+            self.data_source.variable_added.connect(self.on_variable_added)
+        if hasattr(self.data_source, 'variable_updated'):
+            self.data_source.variable_updated.connect(self.on_variable_updated)
+        if hasattr(self.data_source, 'variable_removed'):
+            self.data_source.variable_removed.connect(self.on_variable_removed)
 
     def resize_all_columns(self):
         """Resize all columns to fit their contents."""
@@ -81,7 +87,10 @@ class VariableViewer(QMainWindow):
         # Retrieve all top-level attributes/items from the data source
         all_vars = {
             name: getattr(self.data_source, name, None)
-            for name in dir(self.data_source) if not name.startswith('_')
+            # for name in dir(self.data_source) if not name.startswith('_')
+            for name in dir(self.data_source)
+            if not name.startswith('_') and not callable(
+                getattr(self.data_source, name, None))
         }
 
         for name, value in all_vars.items():
@@ -629,7 +638,7 @@ class VariableViewer(QMainWindow):
                 elif isinstance(value, dict):
                     # part is a key
                     # Escape quotes in key if necessary
-                    escaped_key = part.replace('"', '\\"')
+                    escaped_key = part.replace('"', '\\"').replace("'", "\\'")
                     path += f'["{escaped_key}"]'
                     value = value.get(part, None)
                 elif hasattr(value, part):
@@ -661,7 +670,9 @@ class VariableStandardItemModel(QStandardItemModel):
                 continue
             item = self.itemFromIndex(index)
             if item:
-                path = self.root_variable+'.'+self.viewer.resolve_item_path(item)
+                path = self.viewer.resolve_item_path(item)
+                if not path.startswith(self.root_variable):
+                    path = f"{self.root_variable}.{path}"
                 paths.append(path)
         if paths:
             mime_data.setText("\n".join(paths))

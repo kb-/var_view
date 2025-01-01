@@ -92,7 +92,7 @@ def main():
 
     # Instantiate the VariableViewer with the Variables instance
     viewer = VariableViewer(app_variables)
-    viewer.add_console(app_variables)  # Integrate the console
+    viewer.add_console()  # Integrate the console
     viewer.show()
 
     def update_variables_after_show(variables_instance):
