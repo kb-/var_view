@@ -96,16 +96,21 @@ class VariableViewer(QMainWindow):
         Refresh the entire view by clearing and repopulating the model.
         This captures the current state of variables.
         """
-        logging.info("Refreshing Variable Viewer...")
+        logging.info("refresh_view() called: Refreshing Variable Viewer...")
+
+        # Optional: Remove previous tree items
         self.model.clear()
         self.model.setHorizontalHeaderLabels(["Variable", "Type", "Value", "Memory"])
+
         all_vars = self.variables_instance.get_all_variables()
         logging.debug(f"All variables to load: {list(all_vars.keys())}")
+
         for name, value in all_vars.items():
             self.add_variable(name, value, self.model.invisibleRootItem())
+
         # Adjust column sizes after initial load
         self.resize_all_columns()
-        logging.info("Variable Viewer refreshed.")
+        logging.info("refresh_view() completed: Variable Viewer refreshed.")
 
     def add_variable(self, name, value, parent_item, lazy_load=True):
         try:
@@ -135,9 +140,10 @@ class VariableViewer(QMainWindow):
             # Append items to the parent
             parent_item.appendRow([item_name, item_type, item_value, item_memory])
 
-            # Log addition
-            logging.debug(
-                f"Added variable '{name}' of type '{value_type}' with value '{formatted_value}'.")
+            # Conditional Debug Log
+            if name in ["list_var", "nested_dict", "test_obj"]:  # Adjust as needed
+                logging.debug(
+                    f"Added variable '{name}' of type '{value_type}' with value '{formatted_value}'.")
 
             # Add a placeholder for lazy loading if the variable can be expanded
             if lazy_load and self.can_expand(value):
@@ -196,9 +202,20 @@ class VariableViewer(QMainWindow):
                     # After loading children, resize columns to fit new content
                     self.resize_all_columns()
 
-    def load_children(self, parent_item, value):
+    def load_children(self, parent_item, value, visited=None):
         """Load and display children of a variable."""
+        if visited is None:
+            visited = set()
+
         try:
+            if id(value) in visited:
+                logging.debug(
+                    f"Cyclic reference detected for '{parent_item.text()}'. Skipping further traversal.")
+                self.add_variable("<Cyclic Reference>", "<Cyclic Reference>",
+                                  parent_item, lazy_load=False)
+                return
+            visited.add(id(value))
+
             if isinstance(value, list):
                 logging.debug(f"Loading children for list: {parent_item.text()}")
                 for index, sub_value in enumerate(value):
@@ -297,7 +314,8 @@ class VariableViewer(QMainWindow):
         elif len(selected_rows) > 1:
             # Multiple selections: Enable Export Selected
             export_selected_action = QAction("Export Selected", self)
-            export_selected_action.triggered.connect(lambda: self.export_selected_variables(indexes))
+            export_selected_action.triggered.connect(
+                lambda: self.export_selected_variables(indexes))
             menu.addAction(export_selected_action)
         else:
             # No valid selections for export
@@ -376,10 +394,12 @@ class VariableViewer(QMainWindow):
                         self.model.item(row, 2).setText(formatted_value)
                         memory_usage = self.calculate_memory_usage(value)
                         self.model.item(row, 3).setText(memory_usage)
+                        logging.info(f"Updated variable '{path}'.")
                 else:
                     # Handle cases where the variable could not be resolved
                     self.model.item(row, 2).setText("<Unavailable>")
                     self.model.item(row, 3).setText("N/A")
+                    logging.warning(f"Variable '{path}' is unavailable.")
 
     def copy_variable_path(self, indexes):
         """Copy the full path of the selected variables to the clipboard."""
@@ -432,12 +452,13 @@ class VariableViewer(QMainWindow):
     # Signal Handlers
     def on_variable_added(self, name):
         """Handle a new variable being added."""
+        logging.info(f"Signal received: variable_added('{name}')")
         value = self.variables_instance.get_variable(name)
         self.add_variable(name, value, self.model.invisibleRootItem())
 
     def on_variable_updated(self, name):
         """Handle a variable being updated."""
-        logging.info(f"Variable '{name}' has been updated.")
+        logging.info(f"Signal received: variable_updated('{name}')")
         # Find the top-level item matching the variable_name
         root = self.model.invisibleRootItem()
         for row in range(root.rowCount()):
@@ -462,13 +483,17 @@ class VariableViewer(QMainWindow):
 
     def on_variable_removed(self, name):
         """Handle a variable being removed."""
+        logging.info(f"Signal received: variable_removed('{name}')")
         # Find the top-level item matching the variable_name and remove it
         root = self.model.invisibleRootItem()
         for row in range(root.rowCount()):
             item = root.child(row, 0)
             if item.text() == name:
                 self.model.removeRow(row)
+                logging.info(f"Removed variable '{name}' from the viewer.")
                 break
+        else:
+            logging.warning(f"Variable '{name}' not found in the viewer.")
 
     def resolve_item_path(self, item):
         """Get the full path of the variable represented by the tree item."""
