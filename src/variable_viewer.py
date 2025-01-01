@@ -18,12 +18,11 @@ from PyQt6.QtWidgets import QApplication
 
 
 class VariableViewer(QMainWindow):
-    def __init__(self, variables_instance):
+    def __init__(self, data_source):
         super().__init__()
-        self.variables_instance = variables_instance  # Instance of Variables
+        self.data_source = data_source  # Generic data source
         self.exporter = VariableExporter(self)
         self.initUI()
-        self.connect_signals()
 
     def initUI(self):
         self.setWindowTitle("Variable Viewer")
@@ -68,9 +67,6 @@ class VariableViewer(QMainWindow):
         """
         Connect signals from Variables instance to the viewer.
         """
-        self.variables_instance.variable_added.connect(self.on_variable_added)
-        self.variables_instance.variable_updated.connect(self.on_variable_updated)
-        self.variables_instance.variable_removed.connect(self.on_variable_removed)
 
     def resize_all_columns(self):
         """Resize all columns to fit their contents."""
@@ -78,25 +74,18 @@ class VariableViewer(QMainWindow):
             self.tree_view.resizeColumnToContents(column)
 
     def refresh_view(self):
-        """
-        Refresh the entire view by clearing and repopulating the model.
-        This captures the current state of variables.
-        """
-        logging.info("refresh_view() called: Refreshing Variable Viewer...")
-
-        # Optional: Remove previous tree items
+        """Refresh the view using the generic data source."""
         self.model.clear()
         self.model.setHorizontalHeaderLabels(["Variable", "Type", "Value", "Memory"])
 
-        all_vars = self.variables_instance.get_all_variables()
-        logging.debug(f"All variables to load: {list(all_vars.keys())}")
+        # Retrieve all top-level attributes/items from the data source
+        all_vars = {
+            name: getattr(self.data_source, name, None)
+            for name in dir(self.data_source) if not name.startswith('_')
+        }
 
         for name, value in all_vars.items():
             self.add_variable(name, value, self.model.invisibleRootItem())
-
-        # Adjust column sizes after initial load
-        self.resize_all_columns()
-        logging.info("refresh_view() completed: Variable Viewer refreshed.")
 
     def add_variable(self, name, value, parent_item, lazy_load=True):
         try:
@@ -367,7 +356,8 @@ class VariableViewer(QMainWindow):
                 item = self.model.itemFromIndex(index)
                 if item and item.parent() is None:  # Check for root-level item
                     path = item.text()
-                    value = self.variables_instance.get_variable(path)
+                    value = getattr(self.data_source, path,
+                                    None)  # Use `data_source` instead
                     if value is not None:
                         self.unload_and_reload_item(item, value, path)
                     else:
@@ -454,7 +444,7 @@ class VariableViewer(QMainWindow):
             clipboard.setText("\n".join(paths))
             logging.debug(f"Copied to clipboard: {paths}")
 
-    def add_console(self, variables_instance):
+    def add_console(self):
         # Create an in-process kernel manager
         kernel_manager = QtInProcessKernelManager()
         kernel_manager.start_kernel()
@@ -480,17 +470,17 @@ class VariableViewer(QMainWindow):
         # Store a reference to prevent garbage collection
         self.console_window = console_window
 
-        # Inject the Variables instance into the console's namespace
+        # Inject the data source into the console's namespace
         kernel = kernel_manager.kernel.shell
-        kernel.push({"variables": variables_instance})
+        kernel.push({"data_source": self.data_source})  # Use `data_source` here
 
-        logging.info("Console window opened and Variables instance injected.")
+        logging.info("Console window opened and data source injected.")
 
     # Signal Handlers
     def on_variable_added(self, name):
         """Handle a new variable being added."""
         logging.info(f"Signal received: variable_added('{name}')")
-        value = self.variables_instance.get_variable(name)
+        value = getattr(self.data_source, name, None)
         self.add_variable(name, value, self.model.invisibleRootItem())
 
     def on_variable_updated(self, name):
@@ -502,7 +492,11 @@ class VariableViewer(QMainWindow):
             item = root.child(row, 0)
             if item.text() == name:
                 # Update Type, Value, and Memory columns
-                value = self.variables_instance.get_variable(name)
+                try:
+                    value = getattr(self.data_source, name, None)
+                except AttributeError as e:
+                    logging.error(f"Error accessing '{name}' in data source: {e}")
+                    return
                 if value is not None:
                     self.model.item(row, 1).setText(type(value).__name__)
                     formatted_value = self.format_value(value)
@@ -533,60 +527,74 @@ class VariableViewer(QMainWindow):
             logging.warning(f"Variable '{name}' not found in the viewer.")
 
     def resolve_variable(self, path):
-        """Resolve a variable path to its value."""
+        """Resolve a variable path to its value in a nested structure."""
         try:
-            # Updated pattern to include dot-prefixed attributes
+            # Pattern to match attributes (.attr), dictionary keys (["key"]), and list indices ([index])
             pattern = re.compile(r'\w+|\.\w+|\["[^"]*"\]|\[\d+\]')
             components = pattern.findall(path)
+
             if not components:
+                logging.error(f"Invalid path: {path}")
                 return None
-            # Initialize value with the root variable
+
+            # Extract the root component (the starting variable or attribute)
             root_component = components[0]
-            value = self.variables_instance.get_variable(root_component)
+            value = getattr(self.data_source, root_component, None)
             if value is None:
                 logging.error(f"Root variable '{root_component}' not found.")
                 return None
-            # Iterate over the rest of the components
+
+            # Iterate through the remaining path components to resolve nested values
             for comp in components[1:]:
-                if comp.startswith("[") and comp.endswith("]"):
-                    if '"' in comp:
-                        # It's a dictionary key with ["key"] syntax
+                if comp.startswith("[") and comp.endswith(
+                        "]"):  # Handles list indices and dictionary keys
+                    if '"' in comp:  # Dictionary key
                         key = comp.strip('["]')
                         if isinstance(value, dict):
                             value = value.get(key, None)
                             if value is None:
-                                logging.error(f"Key '{key}' not found in dict '{root_component}'.")
+                                logging.error(
+                                    f"Key '{key}' not found in dictionary at '{root_component}'.")
                                 return None
                         else:
-                            logging.error(f"Expected dict for key access, got {type(value).__name__}")
+                            logging.error(
+                                f"Expected a dictionary, got {type(value).__name__} for key access '{key}'.")
                             return None
-                    else:
-                        # It's a list index [index]
-                        index = int(comp.strip("[]"))
-                        if isinstance(value, list):
-                            if 0 <= index < len(value):
-                                value = value[index]
+                    else:  # List index
+                        try:
+                            index = int(comp.strip("[]"))
+                            if isinstance(value, list):
+                                if 0 <= index < len(value):
+                                    value = value[index]
+                                else:
+                                    logging.error(
+                                        f"Index {index} out of range for list at '{root_component}'.")
+                                    return None
                             else:
-                                logging.error(f"List index {index} out of range for '{path}'.")
+                                logging.error(
+                                    f"Expected a list, got {type(value).__name__} for index access '{index}'.")
                                 return None
-                        else:
-                            logging.error(f"Expected list for index access, got {type(value).__name__}")
+                        except ValueError:
+                            logging.error(
+                                f"Invalid list index '{comp}' in path '{path}'.")
                             return None
-                elif comp.startswith("."):
-                    # It's an object attribute .attr
+                elif comp.startswith("."):  # Object attribute
                     attr = comp.strip(".")
                     if hasattr(value, attr):
                         value = getattr(value, attr, None)
                         if value is None:
-                            logging.error(f"Attribute '{attr}' of '{path}' is None.")
+                            logging.error(
+                                f"Attribute '{attr}' of '{path}' resolved to None.")
                             return None
                     else:
-                        logging.error(f"Attribute '{attr}' not found in {type(value).__name__}.")
+                        logging.error(
+                            f"Attribute '{attr}' not found in object of type {type(value).__name__}.")
                         return None
-                else:
-                    # Fallback for unexpected format
-                    logging.error(f"Unexpected path component '{comp}' in path '{path}'.")
+                else:  # Unrecognized path component
+                    logging.error(
+                        f"Unexpected path component '{comp}' in path '{path}'.")
                     return None
+
             return value
         except Exception as e:
             logging.error(f"Error resolving variable '{path}': {e}")
@@ -608,7 +616,7 @@ class VariableViewer(QMainWindow):
             if i == 0:
                 # Root variable
                 path = part
-                value = self.variables_instance.get_variable(part)
+                value = getattr(self.data_source, part, None)
             else:
                 if isinstance(value, list):
                     # part should be [index]
