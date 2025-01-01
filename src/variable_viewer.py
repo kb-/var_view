@@ -631,9 +631,10 @@ class VariableViewer(QMainWindow):
 
 
 class VariableStandardItemModel(QStandardItemModel):
-    def __init__(self, viewer, parent=None):
+    def __init__(self, viewer, parent=None, root_variable='variables'):
         super().__init__(parent)
         self.viewer = viewer  # Reference to VariableViewer
+        self.root_variable = root_variable
 
     def supportedDragActions(self):
         return Qt.DropAction.CopyAction
@@ -647,7 +648,7 @@ class VariableStandardItemModel(QStandardItemModel):
                 continue
             item = self.itemFromIndex(index)
             if item:
-                path = self.viewer.resolve_item_path(item)
+                path = self.root_variable+'.'+self.viewer.resolve_item_path(item)
                 paths.append(path)
         if paths:
             mime_data.setText("\n".join(paths))
