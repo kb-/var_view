@@ -300,35 +300,28 @@ class VariableViewer(QMainWindow):
 
         menu = QMenu()
 
-        # Determine selected variables (only unique rows in the Variable column)
-        selected_rows = set()
-        for index in indexes:
-            if index.column() == 0:
-                selected_rows.add(index.row())
-
-        if len(selected_rows) == 1:
-            # Single selection: Enable Export
+        # Add Export action for single or multiple selections
+        if len(indexes) == 1:  # Single selection
             export_action = QAction("Export", self)
             export_action.triggered.connect(lambda: self.export_variable(indexes[0]))
             menu.addAction(export_action)
-        elif len(selected_rows) > 1:
-            # Multiple selections: Enable Export Selected
+        elif len(indexes) > 1:  # Multiple selections
             export_selected_action = QAction("Export Selected", self)
             export_selected_action.triggered.connect(
                 lambda: self.export_selected_variables(indexes))
             menu.addAction(export_selected_action)
-        else:
-            # No valid selections for export
-            export_action = QAction("Export", self)
-            export_action.setEnabled(False)
-            menu.addAction(export_action)
 
-        # Add Update action (supports multiple selections)
-        update_action = QAction("Update", self)
-        update_action.triggered.connect(lambda: self.update_selected_variables(indexes))
-        menu.addAction(update_action)
+        # Add Update action (root-level variables only)
+        for index in indexes:
+            item = self.model.itemFromIndex(index)
+            if item.parent() is None:  # Root-level variable
+                update_action = QAction("Update", self)
+                update_action.triggered.connect(
+                    lambda: self.update_selected_variables(indexes))
+                menu.addAction(update_action)
+                break
 
-        # Add Copy Path action (supports multiple selections)
+        # Add Copy Path action for any selection
         copy_path_action = QAction("Copy Path", self)
         copy_path_action.triggered.connect(lambda: self.copy_variable_path(indexes))
         menu.addAction(copy_path_action)
@@ -371,23 +364,18 @@ class VariableViewer(QMainWindow):
 
     def update_selected_variables(self, indexes):
         """
-        Update the selected variables by reloading their entries in the tree.
-        Supports multiple selections.
+        Update root-level variables by reloading their entries in the tree.
         """
-        selected_rows = set()
         for index in indexes:
             if index.column() == 0:  # Only process the "Variable" column
-                selected_rows.add(index.row())
-
-        for row in selected_rows:
-            item = self.model.item(row, 0)  # Get the variable's tree item
-            if item:
-                path = self.resolve_item_path(item)  # Get the variable's path
-                value = self.resolve_variable(path)  # Fetch the current value
-                if value is not None:
-                    self.unload_and_reload_item(item, value, path)
-                else:
-                    logging.warning(f"Variable '{path}' is unavailable.")
+                item = self.model.itemFromIndex(index)
+                if item and item.parent() is None:  # Check for root-level item
+                    path = item.text()
+                    value = self.variables_instance.get_variable(path)
+                    if value is not None:
+                        self.unload_and_reload_item(item, value, path)
+                    else:
+                        logging.warning(f"Root variable '{path}' is unavailable.")
 
     def unload_and_reload_item(self, item, value, path):
         """
