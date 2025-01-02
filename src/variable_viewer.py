@@ -18,13 +18,13 @@ from PyQt6.QtWidgets import QApplication
 
 
 class VariableViewer(QMainWindow):
-    def __init__(self, data_source):
+    def __init__(self, data_source, root_variable="data_source"):
         super().__init__()
         self.data_source = data_source  # Generic data source
         self.exporter = VariableExporter(self)
-        self.initUI()
+        self.initUI(root_variable)
 
-    def initUI(self):
+    def initUI(self, root_variable):
         self.setWindowTitle("Variable Viewer")
         self.resize(1060, 800)
 
@@ -38,7 +38,7 @@ class VariableViewer(QMainWindow):
         layout.addWidget(self.tree_view)
 
         # Set custom model
-        self.model = VariableStandardItemModel(self)
+        self.model = VariableStandardItemModel(self, root_variable)
         self.model.setHorizontalHeaderLabels(["Variable", "Type", "Value", "Memory"])
         self.tree_view.setModel(self.model)
 
@@ -670,7 +670,7 @@ class VariableViewer(QMainWindow):
 
 
 class VariableStandardItemModel(QStandardItemModel):
-    def __init__(self, viewer, parent=None, root_variable='variables'):
+    def __init__(self, viewer, root_variable="data_source", parent=None):
         super().__init__(parent)
         self.viewer = viewer  # Reference to VariableViewer
         self.root_variable = root_variable

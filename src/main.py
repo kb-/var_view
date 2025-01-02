@@ -91,7 +91,7 @@ def main():
     app = QApplication(sys.argv)
 
     # Instantiate the VariableViewer with the data source
-    viewer = VariableViewer(data_source)
+    viewer = VariableViewer(data_source, "data_source")
     viewer.add_console()  # Integrate the console
     viewer.show()
 
@@ -107,6 +107,16 @@ def main():
 
     # Schedule the modifications to happen once the event loop starts (after 5 seconds)
     QTimer.singleShot(5000, update_variables_after_show)
+
+    # Create a timer for periodic logging
+    def log_string_var():
+        """Log the current value of string_var periodically."""
+        logging.info(f"Periodic check: string_var = {data_source.string_var}")
+
+    # Set up the timer to trigger every 2 seconds (2000 milliseconds)
+    periodic_timer = QTimer()
+    periodic_timer.timeout.connect(log_string_var)
+    periodic_timer.start(2000)
 
     # Execute the application
     sys.exit(app.exec())
