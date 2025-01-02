@@ -21,13 +21,13 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
 
 class VariableViewer(QMainWindow):
-    def __init__(self, data_source, root_variable="data_source"):
+    def __init__(self, data_source, alias="data_source"):
         super().__init__()
         self.data_source = data_source  # Generic data source
         self.exporter = VariableExporter(self)
-        self.initUI(root_variable)
+        self.initUI(alias)
 
-    def initUI(self, root_variable):
+    def initUI(self, alias):
         self.setWindowTitle("Variable Viewer")
         self.resize(1060, 800)
 
@@ -41,7 +41,7 @@ class VariableViewer(QMainWindow):
         layout.addWidget(self.tree_view)
 
         # Set custom model
-        self.model = VariableStandardItemModel(self, root_variable)
+        self.model = VariableStandardItemModel(self, alias)
         self.model.setHorizontalHeaderLabels(["Variable", "Type", "Value", "Memory"])
         self.tree_view.setModel(self.model)
 
@@ -472,7 +472,7 @@ class VariableViewer(QMainWindow):
             clipboard.setText("\n".join(paths))
             logger.debug(f"Copied to clipboard: {paths}")
 
-    def add_console(self):
+    def add_console(self, alias="data_source"):
         # Create an in-process kernel manager
         kernel_manager = QtInProcessKernelManager()
         kernel_manager.start_kernel()
@@ -498,11 +498,11 @@ class VariableViewer(QMainWindow):
         # Store a reference to prevent garbage collection
         self.console_window = console_window
 
-        # Inject the data source into the console's namespace
+        # Inject the data source into the console's namespace under the alias
         kernel = kernel_manager.kernel.shell
-        kernel.push({"data_source": self.data_source})  # Use `data_source` here
+        kernel.push({alias: self.data_source})  # Use alias here
 
-        logger.info("Console window opened and data source injected.")
+        logger.info(f"Console window opened and '{alias}' injected.")
 
     # Signal Handlers
     def on_variable_added(self, name):
@@ -673,10 +673,10 @@ class VariableViewer(QMainWindow):
 
 
 class VariableStandardItemModel(QStandardItemModel):
-    def __init__(self, viewer, root_variable="data_source", parent=None):
+    def __init__(self, viewer, alias="data_source", parent=None):
         super().__init__(parent)
         self.viewer = viewer  # Reference to VariableViewer
-        self.root_variable = root_variable
+        self.alias = alias
 
     def supportedDragActions(self):
         return Qt.DropAction.CopyAction
@@ -691,8 +691,8 @@ class VariableStandardItemModel(QStandardItemModel):
             item = self.itemFromIndex(index)
             if item:
                 path = self.viewer.resolve_item_path(item)
-                if not path.startswith(self.root_variable):
-                    path = f"{self.root_variable}.{path}"
+                if not path.startswith(self.alias):
+                    path = f"{self.alias}.{path}"
                 paths.append(path)
         if paths:
             mime_data.setText("\n".join(paths))

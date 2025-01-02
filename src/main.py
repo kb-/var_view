@@ -91,8 +91,8 @@ def main():
     app = QApplication(sys.argv)
 
     # Instantiate the VariableViewer with the data source
-    viewer = VariableViewer(data_source, "data_source")
-    viewer.add_console()  # Integrate the console
+    viewer = VariableViewer(data_source, "myalias")
+    viewer.add_console("myalias")  # Integrate the console
     viewer.show()
 
     def update_variables_after_show():
