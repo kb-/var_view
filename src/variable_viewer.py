@@ -10,12 +10,15 @@ from PyQt6.QtWidgets import (
     QHeaderView
 )
 from PyQt6.QtGui import QStandardItemModel, QStandardItem, QAction
-from PyQt6.QtCore import Qt, QTimer, QObject
+from PyQt6.QtCore import Qt, QObject
 from variable_exporter import VariableExporter  # Ensure you have this module
 from qtconsole.rich_jupyter_widget import RichJupyterWidget
 from qtconsole.inprocess import QtInProcessKernelManager
 from PyQt6.QtWidgets import QApplication
 
+# Replace global logger with a module-specific logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
 
 class VariableViewer(QMainWindow):
     def __init__(self, data_source, root_variable="data_source"):
@@ -126,7 +129,7 @@ class VariableViewer(QMainWindow):
 
             # Conditional Debug Log
             if name in ["list_var", "nested_dict", "test_obj"]:  # Adjust as needed
-                logging.debug(
+                logger.debug(
                     f"Added variable '{name}' of type '{value_type}' with value '{formatted_value}'.")
 
             # Add a placeholder for lazy loading if the variable can be expanded
@@ -138,7 +141,7 @@ class VariableViewer(QMainWindow):
                 item_name.appendRow(
                     [placeholder, QStandardItem(), QStandardItem(), QStandardItem()])
         except Exception as e:
-            logging.error(f"Error adding variable '{name}': {e}")
+            logger.error(f"Error adding variable '{name}': {e}")
             parent_item.appendRow([
                 QStandardItem(name),
                 QStandardItem("Error"),
@@ -166,7 +169,7 @@ class VariableViewer(QMainWindow):
                 bytes_size /= 1024
             return f"{bytes_size:.2f} PB"  # Fall back for very large sizes
         except Exception as e:
-            logging.error(f"Error calculating memory usage: {e}")
+            logger.error(f"Error calculating memory usage: {e}")
             return "N/A"
 
     def can_expand(self, value):
@@ -199,7 +202,7 @@ class VariableViewer(QMainWindow):
 
         try:
             if id(value) in visited:
-                logging.debug(
+                logger.debug(
                     f"Cyclic reference detected for '{parent_item.text()}'. Skipping further traversal.")
                 self.add_variable("<Cyclic Reference>", "<Cyclic Reference>",
                                   parent_item, lazy_load=False)
@@ -207,43 +210,43 @@ class VariableViewer(QMainWindow):
             visited.add(id(value))
 
             if isinstance(value, list):
-                logging.debug(f"Loading children for list: {parent_item.text()}")
+                logger.debug(f"Loading children for list: {parent_item.text()}")
                 for index, sub_value in enumerate(value):
                     self.add_variable(f"[{index}]", sub_value, parent_item)
             elif isinstance(value, dict):
-                logging.debug(f"Loading children for dict: {parent_item.text()}")
+                logger.debug(f"Loading children for dict: {parent_item.text()}")
                 for key, sub_value in value.items():
                     self.add_variable(str(key), sub_value, parent_item)
             elif inspect.isclass(value):
                 # Skip classes to prevent unwanted entries
-                logging.debug(f"Skipping class '{value.__name__}'.")
+                logger.debug(f"Skipping class '{value.__name__}'.")
                 return
             elif hasattr(value, '__dict__') and not isinstance(value, QObject):
                 # For non-QObject instances, iterate over __dict__
-                logging.debug(f"Loading children for object: {parent_item.text()}")
+                logger.debug(f"Loading children for object: {parent_item.text()}")
                 for attr_name, attr_value in vars(value).items():
                     if attr_name.startswith("_"):
-                        logging.debug(f"Skipping private attribute '{attr_name}'.")
+                        logger.debug(f"Skipping private attribute '{attr_name}'.")
                         continue  # Skip private attributes
                     if callable(attr_value):
-                        logging.debug(f"Skipping method '{attr_name}'.")
+                        logger.debug(f"Skipping method '{attr_name}'.")
                         continue  # Skip methods
                     self.add_variable(attr_name, attr_value, parent_item)
             elif isinstance(value, QObject):
                 # For QObject instances, iterate over properties without leading underscores and non-callable
-                logging.debug(f"Loading children for QObject: {parent_item.text()}")
+                logger.debug(f"Loading children for QObject: {parent_item.text()}")
                 for attr in dir(value):
                     if attr.startswith("_"):
-                        logging.debug(f"Skipping private attribute '{attr}'.")
+                        logger.debug(f"Skipping private attribute '{attr}'.")
                         continue  # Skip private attributes
                     try:
                         attr_value = getattr(value, attr)
                         if callable(attr_value):
-                            logging.debug(f"Skipping method '{attr}'.")
+                            logger.debug(f"Skipping method '{attr}'.")
                             continue  # Skip methods
                         self.add_variable(attr, attr_value, parent_item)
                     except Exception as e:
-                        logging.error(f"Error accessing attribute '{attr}': {e}")
+                        logger.error(f"Error accessing attribute '{attr}': {e}")
                         self.add_variable(attr, f"<Error: {e}>", parent_item,
                                           lazy_load=False)
             # Add more type handlers if necessary
@@ -252,7 +255,7 @@ class VariableViewer(QMainWindow):
             self.resize_all_columns()
 
         except Exception as e:
-            logging.error(f"Error loading children of '{parent_item.text()}': {e}")
+            logger.error(f"Error loading children of '{parent_item.text()}': {e}")
             parent_item.appendRow([
                 QStandardItem("Error"),
                 QStandardItem("Error"),
@@ -284,7 +287,7 @@ class VariableViewer(QMainWindow):
             else:
                 return str(value)
         except Exception as e:
-            logging.error(f"Error formatting value: {e}")
+            logger.error(f"Error formatting value: {e}")
             return "<Error>"
 
     def show_context_menu(self, position):
@@ -370,14 +373,14 @@ class VariableViewer(QMainWindow):
                     if value is not None:
                         self.unload_and_reload_item(item, value, path)
                     else:
-                        logging.warning(f"Root variable '{path}' is unavailable.")
+                        logger.warning(f"Root variable '{path}' is unavailable.")
 
     def unload_and_reload_item(self, item, value, path):
         """
         Unload and reload a tree item to reflect updated values.
         """
         try:
-            logging.debug(f"Unloading and reloading item '{path}' with value: {value}")
+            logger.debug(f"Unloading and reloading item '{path}' with value: {value}")
 
             # Update parent item's Type, Value, and Memory columns
             item_type = type(value).__name__
@@ -391,20 +394,20 @@ class VariableViewer(QMainWindow):
             self.model.itemFromIndex(item.index().sibling(item.row(), 3)).setText(
                 memory_usage)  # Memory column
 
-            logging.info(f"Updated columns for item '{path}'.")
+            logger.info(f"Updated columns for item '{path}'.")
 
             # Clear existing children
             item.removeRows(0, item.rowCount())
-            logging.info(f"Unloaded children for variable '{path}'.")
+            logger.info(f"Unloaded children for variable '{path}'.")
 
             # Reload children if the variable can be expanded
             if self.can_expand(value):
                 self.load_children(item, value)
-                logging.info(f"Reloaded children for variable '{path}'.")
+                logger.info(f"Reloaded children for variable '{path}'.")
             else:
-                logging.info(f"Variable '{path}' is not expandable.")
+                logger.info(f"Variable '{path}' is not expandable.")
         except Exception as e:
-            logging.error(f"Error unloading and reloading item '{path}': {e}")
+            logger.error(f"Error unloading and reloading item '{path}': {e}")
 
     def update_all_references(self, item, value, path):
         """
@@ -420,12 +423,12 @@ class VariableViewer(QMainWindow):
                 # Check if the sibling references the same object
                 if sibling_value is value:
                     self.update_tree_item(sibling_item, sibling_value, sibling_path)
-                    logging.info(f"Updated display for shared object '{path}'.")
+                    logger.info(f"Updated display for shared object '{path}'.")
 
             # Update the originally selected item
             self.update_tree_item(item, value, path)
         except Exception as e:
-            logging.error(f"Error updating all references for '{path}': {e}")
+            logger.error(f"Error updating all references for '{path}': {e}")
 
     def update_tree_item(self, item, value, path):
         """
@@ -442,7 +445,7 @@ class VariableViewer(QMainWindow):
             memory_usage = self.calculate_memory_usage(value)
             self.model.itemFromIndex(
                 item.index().sibling(item.index().row(), 3)).setText(memory_usage)
-            logging.info(f"Updated display for variable '{path}'.")
+            logger.info(f"Updated display for variable '{path}'.")
 
             # Clear existing children
             item.removeRows(0, item.rowCount())
@@ -451,7 +454,7 @@ class VariableViewer(QMainWindow):
             if self.can_expand(value):
                 self.load_children(item, value)
         except Exception as e:
-            logging.error(f"Error updating tree item '{path}': {e}")
+            logger.error(f"Error updating tree item '{path}': {e}")
 
     def copy_variable_path(self, indexes):
         """Copy the full path of the selected variables to the clipboard."""
@@ -467,7 +470,7 @@ class VariableViewer(QMainWindow):
         if paths:
             clipboard = QApplication.clipboard()
             clipboard.setText("\n".join(paths))
-            logging.debug(f"Copied to clipboard: {paths}")
+            logger.debug(f"Copied to clipboard: {paths}")
 
     def add_console(self):
         # Create an in-process kernel manager
@@ -499,18 +502,18 @@ class VariableViewer(QMainWindow):
         kernel = kernel_manager.kernel.shell
         kernel.push({"data_source": self.data_source})  # Use `data_source` here
 
-        logging.info("Console window opened and data source injected.")
+        logger.info("Console window opened and data source injected.")
 
     # Signal Handlers
     def on_variable_added(self, name):
         """Handle a new variable being added."""
-        logging.info(f"Signal received: variable_added('{name}')")
+        logger.info(f"Signal received: variable_added('{name}')")
         value = getattr(self.data_source, name, None)
         self.add_variable(name, value, self.model.invisibleRootItem())
 
     def on_variable_updated(self, name):
         """Handle a variable being updated."""
-        logging.info(f"Signal received: variable_updated('{name}')")
+        logger.info(f"Signal received: variable_updated('{name}')")
         # Find the top-level item matching the variable_name
         root = self.model.invisibleRootItem()
         for row in range(root.rowCount()):
@@ -520,37 +523,37 @@ class VariableViewer(QMainWindow):
                 try:
                     value = getattr(self.data_source, name, None)
                     if value is not None:
-                        logging.debug(
+                        logger.debug(
                             f"Updating variable '{name}' with new value: {value}")
                         item.setText(type(value).__name__)  # Update type
                         formatted_value = self.format_value(value)
                         self.model.item(row, 2).setText(formatted_value)
                         memory_usage = self.calculate_memory_usage(value)
                         self.model.item(row, 3).setText(memory_usage)
-                        logging.info(f"Updated display for variable '{name}'.")
+                        logger.info(f"Updated display for variable '{name}'.")
                     else:
                         self.model.item(row, 2).setText("<Unavailable>")
                         self.model.item(row, 3).setText("N/A")
-                        logging.warning(f"Variable '{name}' is now unavailable.")
+                        logger.warning(f"Variable '{name}' is now unavailable.")
                 except AttributeError as e:
-                    logging.error(f"Error accessing '{name}' in data source: {e}")
+                    logger.error(f"Error accessing '{name}' in data source: {e}")
                 break
         else:
-            logging.warning(f"Variable '{name}' not found in the viewer.")
+            logger.warning(f"Variable '{name}' not found in the viewer.")
 
     def on_variable_removed(self, name):
         """Handle a variable being removed."""
-        logging.info(f"Signal received: variable_removed('{name}')")
+        logger.info(f"Signal received: variable_removed('{name}')")
         # Find the top-level item matching the variable_name and remove it
         root = self.model.invisibleRootItem()
         for row in range(root.rowCount()):
             item = root.child(row, 0)
             if item.text() == name:
                 self.model.removeRow(row)
-                logging.info(f"Removed variable '{name}' from the viewer.")
+                logger.info(f"Removed variable '{name}' from the viewer.")
                 break
         else:
-            logging.warning(f"Variable '{name}' not found in the viewer.")
+            logger.warning(f"Variable '{name}' not found in the viewer.")
 
     def resolve_variable(self, path):
         """Resolve a variable path to its value in a nested structure."""
@@ -560,14 +563,14 @@ class VariableViewer(QMainWindow):
             components = pattern.findall(path)
 
             if not components:
-                logging.error(f"Invalid path: {path}")
+                logger.error(f"Invalid path: {path}")
                 return None
 
             # Extract the root component (the starting variable or attribute)
             root_component = components[0]
             value = getattr(self.data_source, root_component, None)
             if value is None:
-                logging.error(f"Root variable '{root_component}' not found.")
+                logger.error(f"Root variable '{root_component}' not found.")
                 return None
 
             # Iterate through the remaining path components to resolve nested values
@@ -579,11 +582,11 @@ class VariableViewer(QMainWindow):
                         if isinstance(value, dict):
                             value = value.get(key, None)
                             if value is None:
-                                logging.error(
+                                logger.error(
                                     f"Key '{key}' not found in dictionary at '{root_component}'.")
                                 return None
                         else:
-                            logging.error(
+                            logger.error(
                                 f"Expected a dictionary, got {type(value).__name__} for key access '{key}'.")
                             return None
                     else:  # List index
@@ -593,15 +596,15 @@ class VariableViewer(QMainWindow):
                                 if 0 <= index < len(value):
                                     value = value[index]
                                 else:
-                                    logging.error(
+                                    logger.error(
                                         f"Index {index} out of range for list at '{root_component}'.")
                                     return None
                             else:
-                                logging.error(
+                                logger.error(
                                     f"Expected a list, got {type(value).__name__} for index access '{index}'.")
                                 return None
                         except ValueError:
-                            logging.error(
+                            logger.error(
                                 f"Invalid list index '{comp}' in path '{path}'.")
                             return None
                 elif comp.startswith("."):  # Object attribute
@@ -609,21 +612,21 @@ class VariableViewer(QMainWindow):
                     if hasattr(value, attr):
                         value = getattr(value, attr, None)
                         if value is None:
-                            logging.error(
+                            logger.error(
                                 f"Attribute '{attr}' of '{path}' resolved to None.")
                             return None
                     else:
-                        logging.error(
+                        logger.error(
                             f"Attribute '{attr}' not found in object of type {type(value).__name__}.")
                         return None
                 else:  # Unrecognized path component
-                    logging.error(
+                    logger.error(
                         f"Unexpected path component '{comp}' in path '{path}'.")
                     return None
 
             return value
         except Exception as e:
-            logging.error(f"Error resolving variable '{path}': {e}")
+            logger.error(f"Error resolving variable '{path}': {e}")
             return None
 
     def resolve_item_path(self, item):
@@ -693,7 +696,7 @@ class VariableStandardItemModel(QStandardItemModel):
                 paths.append(path)
         if paths:
             mime_data.setText("\n".join(paths))
-            logging.debug(f"Dragging variable paths: {paths}")
+            logger.debug(f"Dragging variable paths: {paths}")
         return mime_data
 
     def flags(self, index):
