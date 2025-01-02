@@ -377,6 +377,22 @@ class VariableViewer(QMainWindow):
         Unload and reload a tree item to reflect updated values.
         """
         try:
+            logging.debug(f"Unloading and reloading item '{path}' with value: {value}")
+
+            # Update parent item's Type, Value, and Memory columns
+            item_type = type(value).__name__
+            formatted_value = self.format_value(value)
+            memory_usage = self.calculate_memory_usage(value)
+
+            self.model.itemFromIndex(item.index().sibling(item.row(), 1)).setText(
+                item_type)  # Type column
+            self.model.itemFromIndex(item.index().sibling(item.row(), 2)).setText(
+                formatted_value)  # Value column
+            self.model.itemFromIndex(item.index().sibling(item.row(), 3)).setText(
+                memory_usage)  # Memory column
+
+            logging.info(f"Updated columns for item '{path}'.")
+
             # Clear existing children
             item.removeRows(0, item.rowCount())
             logging.info(f"Unloaded children for variable '{path}'.")
@@ -503,20 +519,21 @@ class VariableViewer(QMainWindow):
                 # Update Type, Value, and Memory columns
                 try:
                     value = getattr(self.data_source, name, None)
+                    if value is not None:
+                        logging.debug(
+                            f"Updating variable '{name}' with new value: {value}")
+                        item.setText(type(value).__name__)  # Update type
+                        formatted_value = self.format_value(value)
+                        self.model.item(row, 2).setText(formatted_value)
+                        memory_usage = self.calculate_memory_usage(value)
+                        self.model.item(row, 3).setText(memory_usage)
+                        logging.info(f"Updated display for variable '{name}'.")
+                    else:
+                        self.model.item(row, 2).setText("<Unavailable>")
+                        self.model.item(row, 3).setText("N/A")
+                        logging.warning(f"Variable '{name}' is now unavailable.")
                 except AttributeError as e:
                     logging.error(f"Error accessing '{name}' in data source: {e}")
-                    return
-                if value is not None:
-                    self.model.item(row, 1).setText(type(value).__name__)
-                    formatted_value = self.format_value(value)
-                    self.model.item(row, 2).setText(formatted_value)
-                    memory_usage = self.calculate_memory_usage(value)
-                    self.model.item(row, 3).setText(memory_usage)
-                    logging.info(f"Updated display for variable '{name}'.")
-                else:
-                    self.model.item(row, 2).setText("<Unavailable>")
-                    self.model.item(row, 3).setText("N/A")
-                    logging.warning(f"Variable '{name}' is now unavailable.")
                 break
         else:
             logging.warning(f"Variable '{name}' not found in the viewer.")
