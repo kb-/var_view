@@ -14,6 +14,7 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
+logging.getLogger('variable_viewer').setLevel(logging.DEBUG)
 
 class AppDataSource:
     def __init__(self):
@@ -91,7 +92,7 @@ def main():
     app = QApplication(sys.argv)
 
     # Instantiate the VariableViewer with the data source
-    viewer = VariableViewer(data_source, "myalias")
+    viewer = VariableViewer(data_source, "myalias", plugin_dir="./plugins")
     viewer.add_console("myalias")  # Integrate the console
     viewer.show()
 

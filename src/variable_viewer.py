@@ -29,40 +29,15 @@ def register_type_handler(data_type, handler):
     type_handlers[data_type] = handler
 
 
-def load_plugins(plugin_dir="plugins"):
-    """
-    Load all plugins from the specified directory.
-    :param plugin_dir: Path to the directory containing plugins.
-    """
-    for filename in os.listdir(plugin_dir):
-        if filename.endswith(".py") and not filename.startswith("_"):
-            plugin_path = os.path.join(plugin_dir, filename)
-            try:
-                # Load the plugin module dynamically
-                spec = importlib.util.spec_from_file_location("plugin", plugin_path)
-                plugin = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(plugin)
-
-                # Call the plugin's registration function
-                if hasattr(plugin, "register_handlers"):
-                    plugin.register_handlers(register_type_handler)
-                    print(f"Loaded plugin: {filename}")
-                else:
-                    print(f"Skipped {filename}: No register_handlers function")
-            except Exception as e:
-                print(f"Failed to load plugin {filename}: {e}")
-
-
-# Load plugins at startup
-load_plugins(plugin_dir="plugins")
-
-
 class VariableViewer(QMainWindow):
-    def __init__(self, data_source, alias="data_source"):
+    def __init__(self, data_source, alias="data_source", plugin_dir=None):
         super().__init__()
         self.data_source = data_source  # Generic data source
         self.exporter = VariableExporter(self)
         self.initUI(alias)
+
+        # Load plugins (default and custom)
+        self.load_plugins(plugin_dir)
 
     def initUI(self, alias):
         self.setWindowTitle("Variable Viewer")
@@ -102,6 +77,47 @@ class VariableViewer(QMainWindow):
 
         # Load root variables
         self.refresh_view()
+
+    @staticmethod
+    def load_plugins(plugin_dir=None):
+        """
+        Load plugins from the default and custom directories.
+
+        :param plugin_dir: Directory containing custom plugins.
+        """
+        plugin_dirs = []
+
+        # Add default plugin directory
+        default_plugin_dir = os.path.join(os.path.dirname(__file__), "plugins")
+        plugin_dirs.append(default_plugin_dir)
+
+        # Add custom plugin directory if provided
+        if plugin_dir:
+            plugin_dirs.append(plugin_dir)
+
+        # Load plugins from all specified directories
+        for directory in plugin_dirs:
+            if not os.path.exists(directory):
+                logger.warning(f"Plugin directory '{directory}' does not exist.")
+                continue
+
+            for filename in os.listdir(directory):
+                if filename.endswith(".py") and not filename.startswith("_"):
+                    plugin_path = os.path.join(directory, filename)
+                    try:
+                        # Load the plugin module dynamically
+                        spec = importlib.util.spec_from_file_location("plugin", plugin_path)
+                        plugin = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(plugin)
+
+                        # Call the plugin's registration function
+                        if hasattr(plugin, "register_handlers"):
+                            plugin.register_handlers(register_type_handler)
+                            logger.info(f"Loaded plugin: {filename}")
+                        else:
+                            logger.info(f"Skipped {filename}: No register_handlers function")
+                    except Exception as e:
+                        logger.error(f"Failed to load plugin {filename}: {e}")
 
     def connect_signals(self):
         """
