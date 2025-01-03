@@ -1,10 +1,10 @@
 # src/variable_viewer.py
+import importlib
 import logging
 import inspect
+import os
 import re
 
-import numpy as np
-import torch
 from PyQt6.QtWidgets import (
     QMainWindow, QTreeView, QVBoxLayout, QWidget, QMenu, QMessageBox,
     QHeaderView
@@ -19,6 +19,43 @@ from PyQt6.QtWidgets import QApplication
 # Replace global logger with a module-specific logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
+
+
+type_handlers = {}
+
+
+def register_type_handler(data_type, handler):
+    """Register a custom handler for a specific data type."""
+    type_handlers[data_type] = handler
+
+
+def load_plugins(plugin_dir="plugins"):
+    """
+    Load all plugins from the specified directory.
+    :param plugin_dir: Path to the directory containing plugins.
+    """
+    for filename in os.listdir(plugin_dir):
+        if filename.endswith(".py") and not filename.startswith("_"):
+            plugin_path = os.path.join(plugin_dir, filename)
+            try:
+                # Load the plugin module dynamically
+                spec = importlib.util.spec_from_file_location("plugin", plugin_path)
+                plugin = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(plugin)
+
+                # Call the plugin's registration function
+                if hasattr(plugin, "register_handlers"):
+                    plugin.register_handlers(register_type_handler)
+                    print(f"Loaded plugin: {filename}")
+                else:
+                    print(f"Skipped {filename}: No register_handlers function")
+            except Exception as e:
+                print(f"Failed to load plugin {filename}: {e}")
+
+
+# Load plugins at startup
+load_plugins(plugin_dir="plugins")
+
 
 class VariableViewer(QMainWindow):
     def __init__(self, data_source, alias="data_source"):
@@ -264,25 +301,19 @@ class VariableViewer(QMainWindow):
             ])
 
     def format_value(self, value):
-        """Format the value for display, sampling the first five elements of large data."""
+        """Format the value for display, checking for custom handlers."""
         try:
+            # Check if a custom handler exists for this type
+            for data_type, handler in type_handlers.items():
+                if isinstance(value, data_type):
+                    return handler(value)
+
+            # Default fallback formatting
             if isinstance(value, str):
                 return value if len(value) <= 50 else value[:47] + "..."
             elif isinstance(value, (list, dict)):
                 return f"{type(value).__name__}({len(value)})"
-            elif isinstance(value, torch.Tensor):
-                # Handle Torch Tensors
-                shape = tuple(value.shape)
-                dtype = value.dtype
-                sample = value.flatten().tolist()[:5]  # Sample first 5 elements
-                return f"Tensor{shape} ({dtype}): {sample}..."
-            elif isinstance(value, np.ndarray):
-                # Handle NumPy Arrays
-                shape = value.shape
-                dtype = value.dtype
-                sample = value.flatten()[:5].tolist()  # Sample first 5 elements
-                return f"ndarray{shape} ({dtype}): {sample}..."
-            elif hasattr(value, '__dict__') and not isinstance(value, QObject):
+            elif hasattr(value, '__dict__'):
                 return f"<{type(value).__name__}>"
             else:
                 return str(value)
