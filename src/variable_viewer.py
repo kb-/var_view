@@ -296,7 +296,6 @@ class VariableViewer(QMainWindow):
                         value = self.resolve_variable(path)
                         if value is not None:
                             self.load_children(item, value)
-            self.resize_all_columns()
         except Exception as e:
             logger.error(f"Error handling expand: {e}")
 
