@@ -29,23 +29,24 @@ def register_type_handler(data_type, handler):
 
 
 class VariableRepresentation:
-    def __init__(self, nbytes, shape=None, dtype=None, extra_info=None):
+    def __init__(self, nbytes, shape=None, dtype=None, value_summary=None):
         self.nbytes = nbytes
         self.shape = shape
         self.dtype = dtype
-        self.extra_info = extra_info
+        self.value_summary = value_summary  # Optional custom summary for Value column
 
     def __str__(self):
+        """
+        Default string representation, combining shape, dtype, and value summary.
+        """
         parts = []
         if self.shape:
             parts.append(f"shape={self.shape}")
         if self.dtype:
             parts.append(f"dtype={self.dtype}")
-        if self.nbytes:
-            parts.append(f"memory={VariableViewer.format_bytes(self.nbytes)}")
-        if self.extra_info:
-            parts.append(str(self.extra_info))
-        return ", ".join(parts)
+        if self.value_summary:
+            parts.append(str(self.value_summary))
+        return ", ".join(parts) or "N/A"
 
 
 class VariableViewer(QMainWindow):
@@ -236,7 +237,7 @@ class VariableViewer(QMainWindow):
                     representation = handler(value)
                     if isinstance(representation, VariableRepresentation):
                         return VariableViewer.format_bytes(representation.nbytes)
-
+            # Fallback for unhandled types
             if hasattr(value, 'nbytes'):
                 return VariableViewer.format_bytes(value.nbytes)
             else:
@@ -267,15 +268,19 @@ class VariableViewer(QMainWindow):
     @staticmethod
     def format_value(value):
         """
-        Format the value for display using custom handlers.
+        Format the value for display using plugin handlers or default formatting.
         """
         try:
             for data_type, handler in type_handlers.items():
                 if isinstance(value, data_type):
                     representation = handler(value)
                     if isinstance(representation, VariableRepresentation):
-                        return str(representation)
-            return str(value)
+                        return str(
+                            representation)  # Use VariableRepresentation's __str__
+                    else:
+                        return str(
+                            representation)  # Fallback for custom handler outputs
+            return str(value)  # Default fallback for unhandled types
         except Exception as e:
             logger.error(f"Error formatting value: {e}")
             return "<Error>"
