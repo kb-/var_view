@@ -296,6 +296,7 @@ class VariableViewer(QMainWindow):
                         value = self.resolve_variable(path)
                         if value is not None:
                             self.load_children(item, value)
+            self.resize_all_columns()
         except Exception as e:
             logger.error(f"Error handling expand: {e}")
 
@@ -371,22 +372,26 @@ class VariableViewer(QMainWindow):
             logger.error(f"Error calculating size: {e}")
             return "N/A"
 
+    @staticmethod
+    def get_element_str(obj):
+        # Check if this class (or its parents) actually override __str__
+        # by comparing it to the default object.__str__:
+        if type(obj).__str__ != object.__str__:
+            # Means there's a custom __str__ override
+            return str(obj)
+        else:
+            # Fallback: just show the type name
+            return type(obj).__name__
+
     def format_value(self, value) -> str:
-        """
-        Generic fallback for "Value" column if no plugin is found.
-        For large iterables, we just show a sample or a short string.
-        """
         try:
-            # If a plugin handles it, we won't get here
-            # For generic data:
             max_len = 150
             if isinstance(value, (list, tuple, set)):
                 sample_elems = []
                 for i, elem in enumerate(value):
-                    if i >= 5:
+                    if i >= 5:  # only show first 5
                         break
-                    elem_str = str(elem) if not isinstance(elem, (str, bytes)) else elem
-                    sample_elems.append(elem_str)
+                    sample_elems.append(self.get_element_str(elem))
                 val_str = ", ".join(sample_elems)
                 val_str = f"[{val_str}] ..." if len(value) > 5 else f"[{val_str}]"
             elif isinstance(value, dict):
