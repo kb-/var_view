@@ -1,4 +1,5 @@
 # src/variable_viewer.py
+
 import importlib
 import logging
 import inspect
@@ -7,37 +8,49 @@ import re
 
 from PyQt6.QtWidgets import (
     QMainWindow, QTreeView, QVBoxLayout, QWidget, QMenu, QMessageBox,
-    QHeaderView
+    QHeaderView, QApplication
 )
 from PyQt6.QtGui import QStandardItemModel, QStandardItem, QAction
 from PyQt6.QtCore import Qt, QObject
-from variable_exporter import VariableExporter  # Ensure you have this module
+
+# Console imports
 from qtconsole.rich_jupyter_widget import RichJupyterWidget
 from qtconsole.inprocess import QtInProcessKernelManager
-from PyQt6.QtWidgets import QApplication
 
-# Replace global logger with a module-specific logger
+from variable_exporter import VariableExporter
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
 
+# Global registry of plugin-based type handlers
 type_handlers = {}
 
 
 def register_type_handler(data_type, handler):
-    """Register a custom handler for a specific data type."""
+    """
+    Register a custom handler for a specific data type.
+    Handler should return a VariableRepresentation instance (or string fallback).
+    """
     type_handlers[data_type] = handler
 
 
 class VariableRepresentation:
+    """
+    Encapsulates metadata about a variable that a plugin might provide:
+      - nbytes: memory usage
+      - shape: shape of array-like data
+      - dtype: data type
+      - value_summary: a short text summarizing the contents or first elements
+    """
     def __init__(self, nbytes, shape=None, dtype=None, value_summary=None):
         self.nbytes = nbytes
         self.shape = shape
         self.dtype = dtype
-        self.value_summary = value_summary  # Optional custom summary for Value column
+        self.value_summary = value_summary  # e.g. "sample=[1,2,3]..."
 
     def __str__(self):
         """
-        Default string representation, combining shape, dtype, and value summary.
+        Default text representation combining shape, dtype, and value summary.
         """
         parts = []
         if self.shape:
@@ -46,23 +59,65 @@ class VariableRepresentation:
             parts.append(f"dtype={self.dtype}")
         if self.value_summary:
             parts.append(str(self.value_summary))
-        return ", ".join(parts) or "N/A"
+        return ", ".join(parts) if parts else "N/A"
+
+
+def infer_type_hint_general(data) -> str:
+    """
+    Dynamically infers a type hint for the given input data.
+    Handles first-level types for nested structures, dicts, lists, sets, etc.
+    For example: dict[str, int|dict], list[int|float], etc.
+    """
+    from collections.abc import Iterable
+
+    if isinstance(data, dict):
+        # Empty dict
+        if len(data) == 0:
+            return "dict"
+        key_types = {type(k).__name__ for k in data.keys()}
+        value_types = {type(v).__name__ for v in data.values()}
+        combined_keys = " | ".join(sorted(key_types))
+        combined_values = " | ".join(sorted(value_types))
+        return f"dict[{combined_keys}, {combined_values}]"
+
+    elif isinstance(data, Iterable) and not isinstance(data, (str, bytes)):
+        try:
+            if len(data) == 0:
+                return type(data).__name__  # e.g. "list"
+        except TypeError:
+            # Some iterables don't support len()
+            pass
+        # For a list/tuple/set, gather the unique first-level element types
+        element_types = {type(element).__name__ for element in data}
+        combined_type = " | ".join(sorted(element_types))
+        return f"{type(data).__name__}[{combined_type}]"
+
+    else:
+        # For a non-iterable or str/bytes, just return the type name
+        return type(data).__name__
 
 
 class VariableViewer(QMainWindow):
+    """
+    A GUI-based viewer that:
+      - Displays variables in a tree (with columns: Variable, Type, Size, Value, Memory)
+      - Supports plugins for data-type-specific handling
+      - Can expand nested objects or lists/dicts (lazy loading)
+      - Includes a console integration for interactive usage
+    """
     def __init__(self, data_source, alias="data_source", plugin_dir=None):
         super().__init__()
-        self.data_source = data_source  # Generic data source
+        self.data_source = data_source
         self.exporter = VariableExporter(self)
 
-        # Load plugins (default and custom)
+        # Load plugins from default and/or custom directories
         self.load_plugins(plugin_dir)
 
         self.initUI(alias)
 
     def initUI(self, alias):
         self.setWindowTitle("Variable Viewer")
-        self.resize(1060, 800)
+        self.resize(1200, 800)
 
         # Central widget
         central_widget = QWidget()
@@ -75,174 +130,297 @@ class VariableViewer(QMainWindow):
 
         # Set custom model
         self.model = VariableStandardItemModel(self, alias)
-        self.model.setHorizontalHeaderLabels(["Variable", "Type", "Value", "Memory"])
+        self.model.setHorizontalHeaderLabels(["Variable", "Type", "Size", "Value", "Memory"])
         self.tree_view.setModel(self.model)
 
-        # Enable dragging
+        # Tree properties
         self.tree_view.setDragEnabled(True)
         self.tree_view.setDragDropMode(QTreeView.DragDropMode.DragOnly)
         self.tree_view.setSelectionMode(QTreeView.SelectionMode.ExtendedSelection)
-
-        # Set resize mode to ResizeToContents for each column
-        header = self.tree_view.header()
-
-        # Connect expand signal for lazy loading
         self.tree_view.expanded.connect(self.handle_expand)
-
-        # Add context menu for exporting and updating
         self.tree_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree_view.customContextMenuRequested.connect(self.show_context_menu)
 
-        # Load root variables
-        self.refresh_view()
-
+        # Resize columns
+        header = self.tree_view.header()
         for i in range(self.model.columnCount()):
             header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
-            header.setMinimumSectionSize(50)  # Adjust as needed
+            header.setMinimumSectionSize(50)
+
+        # Initial load
+        self.refresh_view()
 
     @staticmethod
     def load_plugins(plugin_dir=None):
         """
-        Load plugins from the default and custom directories.
-
-        :param plugin_dir: Directory containing custom plugins.
+        Load plugins from the default "plugins" dir and an optional custom plugin_dir.
+        Each plugin calls register_handlers(...) for specialized data types.
         """
-        plugin_dirs = []
+        plugin_dirs = set()
 
-        # Add default plugin directory
-        default_plugin_dir = os.path.join(os.path.dirname(__file__), "plugins")
-        plugin_dirs.append(default_plugin_dir)
+        # Default plugin directory (relative to this file)
+        default_plugin_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "plugins"))
+        plugin_dirs.add(default_plugin_dir)
 
-        # Add custom plugin directory if provided
+        # Add custom plugin directory if provided (and different from default)
         if plugin_dir:
-            plugin_dirs.append(plugin_dir)
+            abs_plugin_dir = os.path.abspath(plugin_dir)
+            if abs_plugin_dir != default_plugin_dir:
+                plugin_dirs.add(abs_plugin_dir)
 
-        # Load plugins from all specified directories
         for directory in plugin_dirs:
             if not os.path.exists(directory):
                 logger.warning(f"Plugin directory '{directory}' does not exist.")
                 continue
-
             for filename in os.listdir(directory):
                 if filename.endswith(".py") and not filename.startswith("_"):
                     plugin_path = os.path.join(directory, filename)
                     try:
-                        # Load the plugin module dynamically
-                        spec = importlib.util.spec_from_file_location("plugin",
-                                                                      plugin_path)
+                        spec = importlib.util.spec_from_file_location("plugin", plugin_path)
                         plugin = importlib.util.module_from_spec(spec)
                         spec.loader.exec_module(plugin)
 
-                        # Call the plugin's registration function
                         if hasattr(plugin, "register_handlers"):
                             plugin.register_handlers(register_type_handler)
                             logger.info(f"Loaded plugin: {filename}")
                         else:
-                            logger.info(
-                                f"Skipped {filename}: No register_handlers function")
+                            logger.info(f"Skipped {filename}: No register_handlers function")
                     except Exception as e:
                         logger.error(f"Failed to load plugin {filename}: {e}")
 
-    def connect_signals(self):
-        """
-        Connect signals from the data source to the viewer.
-        """
-        if hasattr(self.data_source, 'variable_added'):
-            self.data_source.variable_added.connect(self.on_variable_added)
-        if hasattr(self.data_source, 'variable_updated'):
-            self.data_source.variable_updated.connect(self.on_variable_updated)
-        if hasattr(self.data_source, 'variable_removed'):
-            self.data_source.variable_removed.connect(self.on_variable_removed)
-
-    def resize_all_columns(self):
-        """Resize all columns to fit their contents."""
-        for column in range(self.model.columnCount()):
-            self.tree_view.resizeColumnToContents(column)
-
     def refresh_view(self):
-        """Refresh the view using the generic data source."""
+        """
+        Clears the current model and repopulates the top-level variables
+        from self.data_source.
+        """
         self.model.clear()
-        self.model.setHorizontalHeaderLabels(["Variable", "Type", "Value", "Memory"])
+        self.model.setHorizontalHeaderLabels(["Variable", "Type", "Size", "Value", "Memory"])
 
-        # Retrieve all top-level attributes/items from the data source
         all_vars = {
             name: getattr(self.data_source, name, None)
-            # for name in dir(self.data_source) if not name.startswith('_')
             for name in dir(self.data_source)
-            if not name.startswith('_') and not callable(
-                getattr(self.data_source, name, None))
+            if not name.startswith("_") and not callable(getattr(self.data_source, name, None))
         }
 
         for name, value in all_vars.items():
             self.add_variable(name, value, self.model.invisibleRootItem())
 
     def add_variable(self, name, value, parent_item, lazy_load=True):
+        """
+        Add a single variable as a row in the tree under parent_item.
+        Also handles plugin-based representation.
+        """
         try:
-            # Determine the type
-            value_type = type(value).__name__
+            # Check if a plugin handler exists
+            handler = None
+            for data_type in type_handlers:
+                if isinstance(value, data_type):
+                    handler = type_handlers[data_type]
+                    break
 
-            # Format the value nicely
-            formatted_value = self.format_value(value)
+            if handler:
+                # plugin-based
+                representation = handler(value)
+                # Type
+                value_type = infer_type_hint_general(value)
+                # Size (try shape from plugin or fallback)
+                if representation.shape:
+                    if isinstance(value, str):
+                        size_str = str(len(value))
+                    else:
+                        size_str = ", ".join(map(str, representation.shape))
+                elif self.can_expand(value):
+                    size_str = self.calculate_size(value)
+                else:
+                    size_str = "N/A"
+                # Value (prefer plugin's value_summary)
+                formatted_value = (
+                    str(representation.value_summary) if representation.value_summary
+                    else self.format_value(value)
+                )
+                # Memory usage
+                memory_usage = self.format_bytes(representation.nbytes)
+            else:
+                # no plugin -> fallback
+                value_type = infer_type_hint_general(value)
+                size_str = self.calculate_size(value)
+                formatted_value = self.format_value(value)
+                memory_usage = self.calculate_memory_usage(value)
 
-            # Calculate memory usage
-            memory_usage = self.calculate_memory_usage(value)
-
-            # Create items for the columns
-            item_name = QStandardItem(name)
+            # Create QStandardItems for each column
+            item_var = QStandardItem(name)
             item_type = QStandardItem(value_type)
-            item_value = QStandardItem(formatted_value)
-            item_memory = QStandardItem(memory_usage)
+            item_size = QStandardItem(size_str)
+            item_val = QStandardItem(formatted_value)
+            item_mem = QStandardItem(memory_usage)
 
-            # Prevent editing and enable dragging only for Variable column
-            item_name.setEditable(False)
-            item_name.setFlags(item_name.flags() | Qt.ItemFlag.ItemIsDragEnabled)
+            # read-only columns
+            item_var.setEditable(False)
+            item_var.setFlags(item_var.flags() | Qt.ItemFlag.ItemIsDragEnabled)
             item_type.setEditable(False)
-            item_value.setEditable(False)
-            item_memory.setEditable(False)
-            # Only Variable column is draggable as per flags method
+            item_size.setEditable(False)
+            item_val.setEditable(False)
+            item_mem.setEditable(False)
 
-            # Append items to the parent
-            parent_item.appendRow([item_name, item_type, item_value, item_memory])
+            parent_item.appendRow([item_var, item_type, item_size, item_val, item_mem])
 
-            # Conditional Debug Log
-            if name in ["list_var", "nested_dict", "test_obj"]:  # Adjust as needed
-                logger.debug(
-                    f"Added variable '{name}' of type '{value_type}' with value '{formatted_value}'.")
-
-            # Add a placeholder for lazy loading if the variable can be expanded
+            # If it can expand, add a placeholder row for lazy loading
             if lazy_load and self.can_expand(value):
                 placeholder = QStandardItem("Loading...")
-                # Placeholder should not be draggable
                 placeholder.setEditable(False)
-                # Append a full row with placeholder and empty items for other columns
-                item_name.appendRow(
-                    [placeholder, QStandardItem(), QStandardItem(), QStandardItem()])
+                item_var.appendRow([
+                    placeholder, QStandardItem(), QStandardItem(), QStandardItem(), QStandardItem()
+                ])
         except Exception as e:
             logger.error(f"Error adding variable '{name}': {e}")
             parent_item.appendRow([
                 QStandardItem(name),
                 QStandardItem("Error"),
+                QStandardItem("N/A"),
                 QStandardItem(f"<Error: {e}>"),
                 QStandardItem("N/A")
             ])
 
-    @staticmethod
-    def calculate_memory_usage(value):
+    def handle_expand(self, index):
         """
-        Calculate memory usage of a variable using VariableRepresentation.
+        Called when a tree item is expanded; checks for a placeholder row to load children.
+        """
+        try:
+            item = self.model.itemFromIndex(index)
+            if item:
+                if item.hasChildren():
+                    first_child = item.child(0, 0)
+                    if first_child.text() == "Loading...":
+                        item.removeRow(0)
+                        path = self.resolve_item_path(item)
+                        value = self.resolve_variable(path)
+                        if value is not None:
+                            self.load_children(item, value)
+        except Exception as e:
+            logger.error(f"Error handling expand: {e}")
+
+    def load_children(self, parent_item, value, visited=None):
+        """
+        Recursively loads child attributes/elements for dictionaries, lists, or objects.
+        """
+        if visited is None:
+            visited = set()
+        try:
+            if id(value) in visited:
+                logger.debug(f"Cyclic reference for '{parent_item.text()}'.")
+                self.add_variable("<Cyclic Reference>", "<Cyclic Reference>", parent_item, lazy_load=False)
+                return
+            visited.add(id(value))
+
+            if isinstance(value, list):
+                for i, elem in enumerate(value):
+                    self.add_variable(f"[{i}]", elem, parent_item)
+            elif isinstance(value, dict):
+                for key, val in value.items():
+                    self.add_variable(str(key), val, parent_item)
+            elif inspect.isclass(value):
+                # skip classes
+                return
+            elif hasattr(value, '__dict__') and not isinstance(value, QObject):
+                for attr_name, attr_val in vars(value).items():
+                    if attr_name.startswith("_"):
+                        continue
+                    if callable(attr_val):
+                        continue
+                    self.add_variable(attr_name, attr_val, parent_item)
+            elif isinstance(value, QObject):
+                # for Qt objects, reflect on public attributes
+                for attr in dir(value):
+                    if attr.startswith("_"):
+                        continue
+                    try:
+                        attr_val = getattr(value, attr)
+                        if callable(attr_val):
+                            continue
+                        self.add_variable(attr, attr_val, parent_item)
+                    except Exception as sub_e:
+                        logger.error(f"Error accessing {attr}: {sub_e}")
+                        self.add_variable(attr, f"<Error: {sub_e}>", parent_item, lazy_load=False)
+        except Exception as e:
+            logger.error(f"Error loading children: {e}")
+
+    def can_expand(self, value):
+        """Check if object can be expanded (dict, list, or has __dict__, but not str/bytes)."""
+        return isinstance(value, (dict, list, QObject)) or (
+            hasattr(value, '__dict__') and not isinstance(value, (str, bytes))
+        )
+
+    def calculate_size(self, value) -> str:
+        """
+        Calculate size for the "Size" column: length for strings/iterables,
+        shape for shape-based objects, etc.
+        """
+        try:
+            if isinstance(value, str):
+                return str(len(value))
+            elif isinstance(value, (list, tuple, set)):
+                return str(len(value))
+            elif isinstance(value, dict):
+                return f"{{{len(value)}}}"
+            elif hasattr(value, 'shape'):
+                return ", ".join(map(str, value.shape))
+            elif hasattr(value, '__dict__'):
+                return str(len(vars(value)))
+            return "N/A"
+        except Exception as e:
+            logger.error(f"Error calculating size: {e}")
+            return "N/A"
+
+    def format_value(self, value) -> str:
+        """
+        Generic fallback for "Value" column if no plugin is found.
+        For large iterables, we just show a sample or a short string.
+        """
+        try:
+            # If a plugin handles it, we won't get here
+            # For generic data:
+            max_len = 150
+            if isinstance(value, (list, tuple, set)):
+                sample_elems = []
+                for i, elem in enumerate(value):
+                    if i >= 5:
+                        break
+                    elem_str = str(elem) if not isinstance(elem, (str, bytes)) else elem
+                    sample_elems.append(elem_str)
+                val_str = ", ".join(sample_elems)
+                val_str = f"[{val_str}] ..." if len(value) > 5 else f"[{val_str}]"
+            elif isinstance(value, dict):
+                first_keys = list(value.keys())[:5]
+                val_str = "{" + ", ".join(map(str, first_keys)) + ("}..." if len(value) > 5 else "}")
+            elif hasattr(value, '__dict__') and not isinstance(value, (str, bytes)):
+                # Show a short placeholder
+                val_str = f"<{type(value).__name__}>"
+            else:
+                val_str = str(value)
+
+            if len(val_str) > max_len:
+                return val_str[: max_len - 3] + "..."
+            return val_str
+        except Exception as e:
+            logger.error(f"Error in format_value: {e}")
+            return "<Error>"
+
+    def calculate_memory_usage(self, value) -> str:
+        """
+        If a plugin handles memory usage (via VariableRepresentation.nbytes), use it.
+        Otherwise, attempt a fallback with sys.getsizeof.
         """
         try:
             for data_type, handler in type_handlers.items():
                 if isinstance(value, data_type):
-                    representation = handler(value)
-                    if isinstance(representation, VariableRepresentation):
-                        return VariableViewer.format_bytes(representation.nbytes)
-            # Fallback for unhandled types
+                    rep = handler(value)
+                    if isinstance(rep, VariableRepresentation):
+                        return self.format_bytes(rep.nbytes)
+            # fallback
             if hasattr(value, 'nbytes'):
-                return VariableViewer.format_bytes(value.nbytes)
-            else:
-                import sys
-                return VariableViewer.format_bytes(sys.getsizeof(value))
+                return self.format_bytes(value.nbytes)
+            import sys
+            return self.format_bytes(sys.getsizeof(value))
         except Exception as e:
             logger.error(f"Error calculating memory usage: {e}")
             return "N/A"
@@ -250,183 +428,51 @@ class VariableViewer(QMainWindow):
     @staticmethod
     def format_bytes(bytes_size):
         """
-        Convert bytes to a human-readable format.
+        Convert bytes to human-readable string.
         """
         try:
-            units = ['B', 'KB', 'MB', 'GB', 'TB']
-            for unit in units:
+            units = ["B", "KB", "MB", "GB", "TB"]
+            for u in units:
                 if bytes_size < 1024:
-                    if unit == 'B':  # Avoid decimals for bytes
-                        return f"{bytes_size} {unit}"
-                    return f"{bytes_size:.2f} {unit}"
+                    if u == "B":
+                        return f"{bytes_size} B"
+                    return f"{bytes_size:.2f} {u}"
                 bytes_size /= 1024
-            return f"{bytes_size:.2f} PB"  # Handle extremely large sizes
+            return f"{bytes_size:.2f} PB"
         except Exception as e:
             logger.error(f"Error formatting bytes: {e}")
             return "N/A"
 
-    @staticmethod
-    def format_value(value):
-        """
-        Format the value for display using plugin handlers or default formatting.
-        """
-        try:
-            for data_type, handler in type_handlers.items():
-                if isinstance(value, data_type):
-                    representation = handler(value)
-                    if isinstance(representation, VariableRepresentation):
-                        return str(
-                            representation)  # Use VariableRepresentation's __str__
-                    else:
-                        return str(
-                            representation)  # Fallback for custom handler outputs
-            return str(value)  # Default fallback for unhandled types
-        except Exception as e:
-            logger.error(f"Error formatting value: {e}")
-            return "<Error>"
-
-    @staticmethod
-    def can_expand(value):
-        """Check if a variable can be expanded."""
-        return isinstance(value, (dict, list, QObject)) or (
-                hasattr(value, '__dict__') and not isinstance(value, (str, bytes))
-        )
-
-    def handle_expand(self, index):
-        """Handle lazy loading when a tree item is expanded."""
-        item = self.model.itemFromIndex(index)
-        if item.hasChildren():
-            # Get the first child
-            placeholder = item.child(0, 0)
-            if placeholder.text() == "Loading...":
-                # Remove the placeholder
-                item.removeRow(0)
-                # Resolve the variable and load its children
-                path = self.resolve_item_path(item)
-                value = self.resolve_variable(path)
-                if value is not None:
-                    self.load_children(item, value)
-                    # After loading children, resize columns to fit new content
-                    self.resize_all_columns()
-
-    def load_children(self, parent_item, value, visited=None):
-        """Load and display children of a variable."""
-        if visited is None:
-            visited = set()
-
-        try:
-            if id(value) in visited:
-                logger.debug(
-                    f"Cyclic reference detected for '{parent_item.text()}'. Skipping further traversal.")
-                self.add_variable("<Cyclic Reference>", "<Cyclic Reference>",
-                                  parent_item, lazy_load=False)
-                return
-            visited.add(id(value))
-
-            if isinstance(value, list):
-                logger.debug(f"Loading children for list: {parent_item.text()}")
-                for index, sub_value in enumerate(value):
-                    self.add_variable(f"[{index}]", sub_value, parent_item)
-            elif isinstance(value, dict):
-                logger.debug(f"Loading children for dict: {parent_item.text()}")
-                for key, sub_value in value.items():
-                    self.add_variable(str(key), sub_value, parent_item)
-            elif inspect.isclass(value):
-                # Skip classes to prevent unwanted entries
-                logger.debug(f"Skipping class '{value.__name__}'.")
-                return
-            elif hasattr(value, '__dict__') and not isinstance(value, QObject):
-                # For non-QObject instances, iterate over __dict__
-                logger.debug(f"Loading children for object: {parent_item.text()}")
-                for attr_name, attr_value in vars(value).items():
-                    if attr_name.startswith("_"):
-                        logger.debug(f"Skipping private attribute '{attr_name}'.")
-                        continue  # Skip private attributes
-                    if callable(attr_value):
-                        logger.debug(f"Skipping method '{attr_name}'.")
-                        continue  # Skip methods
-                    self.add_variable(attr_name, attr_value, parent_item)
-            elif isinstance(value, QObject):
-                # For QObject instances, iterate over properties without leading underscores and non-callable
-                logger.debug(f"Loading children for QObject: {parent_item.text()}")
-                for attr in dir(value):
-                    if attr.startswith("_"):
-                        logger.debug(f"Skipping private attribute '{attr}'.")
-                        continue  # Skip private attributes
-                    try:
-                        attr_value = getattr(value, attr)
-                        if callable(attr_value):
-                            logger.debug(f"Skipping method '{attr}'.")
-                            continue  # Skip methods
-                        self.add_variable(attr, attr_value, parent_item)
-                    except Exception as e:
-                        logger.error(f"Error accessing attribute '{attr}': {e}")
-                        self.add_variable(attr, f"<Error: {e}>", parent_item,
-                                          lazy_load=False)
-            # Add more type handlers if necessary
-
-            # After loading children, adjust column sizes
-            self.resize_all_columns()
-
-        except Exception as e:
-            logger.error(f"Error loading children of '{parent_item.text()}': {e}")
-            parent_item.appendRow([
-                QStandardItem("Error"),
-                QStandardItem("Error"),
-                QStandardItem(f"<Error: {e}>"),
-                QStandardItem("N/A")
-            ])
-
-    # def format_value(self, value):
-    #     """Format the value for display, checking for custom handlers."""
-    #     try:
-    #         # Check if a custom handler exists for this type
-    #         for data_type, handler in type_handlers.items():
-    #             if isinstance(value, data_type):
-    #                 return handler(value)
-    #
-    #         # Default fallback formatting
-    #         if isinstance(value, str):
-    #             return value if len(value) <= 50 else value[:47] + "..."
-    #         elif isinstance(value, (list, dict)):
-    #             return f"{type(value).__name__}({len(value)})"
-    #         elif hasattr(value, '__dict__'):
-    #             return f"<{type(value).__name__}>"
-    #         else:
-    #             return str(value)
-    #     except Exception as e:
-    #         logger.error(f"Error formatting value: {e}")
-    #         return "<Error>"
-
     def show_context_menu(self, position):
+        """
+        Right-click context menu: Export, Update, Copy Path, etc.
+        """
         indexes = self.tree_view.selectedIndexes()
         if not indexes:
-            return  # No selection, do nothing
+            return
 
         menu = QMenu()
 
-        # Add Export action for single or multiple selections
-        if len(indexes) == 1:  # Single selection
+        # Single or multiple export
+        if len(indexes) == 1:
             export_action = QAction("Export", self)
             export_action.triggered.connect(lambda: self.export_variable(indexes[0]))
             menu.addAction(export_action)
-        elif len(indexes) > 1:  # Multiple selections
-            export_selected_action = QAction("Export Selected", self)
-            export_selected_action.triggered.connect(
-                lambda: self.export_selected_variables(indexes))
-            menu.addAction(export_selected_action)
+        else:
+            export_sel_action = QAction("Export Selected", self)
+            export_sel_action.triggered.connect(lambda: self.export_selected_variables(indexes))
+            menu.addAction(export_sel_action)
 
-        # Add Update action (root-level variables only)
-        for index in indexes:
-            item = self.model.itemFromIndex(index)
-            if item.parent() is None:  # Root-level variable
+        # Update for root-level
+        for idx in indexes:
+            item = self.model.itemFromIndex(idx)
+            if item.parent() is None:
                 update_action = QAction("Update", self)
-                update_action.triggered.connect(
-                    lambda: self.update_selected_variables(indexes))
+                update_action.triggered.connect(lambda: self.update_selected_variables(indexes))
                 menu.addAction(update_action)
                 break
 
-        # Add Copy Path action for any selection
+        # Copy Path action
         copy_path_action = QAction("Copy Path", self)
         copy_path_action.triggered.connect(lambda: self.copy_variable_path(indexes))
         menu.addAction(copy_path_action)
@@ -434,143 +480,203 @@ class VariableViewer(QMainWindow):
         menu.exec(self.tree_view.viewport().mapToGlobal(position))
 
     def export_variable(self, index):
-        """Export a single selected variable."""
+        """
+        Export a single variable.
+        """
         item = self.model.itemFromIndex(index)
-        variable_name = item.text()
-        value = self.resolve_variable(variable_name)
+        var_name = item.text()
+        value = self.resolve_variable(var_name)
         if value is not None:
-            self.exporter.export_variable(variable_name, value)
+            self.exporter.export_variable(var_name, value)
         else:
             QMessageBox.warning(
                 self, "Export Warning",
-                f"Variable '{variable_name}' could not be resolved and was not exported."
+                f"Variable '{var_name}' could not be resolved and was not exported."
             )
 
     def export_selected_variables(self, indexes):
-        """Export multiple selected variables."""
-        variables_to_export = {}
-        for index in indexes:
-            if index.column() != 0:
-                continue  # Only process Variable column
-            item = self.model.itemFromIndex(index)
+        """
+        Export multiple variables.
+        """
+        vars_to_export = {}
+        for idx in indexes:
+            if idx.column() != 0:
+                continue
+            item = self.model.itemFromIndex(idx)
             if item:
                 path = self.resolve_item_path(item)
-                value = self.resolve_variable(path)
-                if value is not None:
-                    variables_to_export[path] = value
+                val = self.resolve_variable(path)
+                if val is not None:
+                    vars_to_export[path] = val
 
-        if variables_to_export:
-            self.exporter.export_variables(variables_to_export)
+        if vars_to_export:
+            self.exporter.export_variables(vars_to_export)
         else:
-            QMessageBox.warning(
-                self, "Export Warning",
-                "No valid variables selected for export."
-            )
+            QMessageBox.warning(self, "Export Warning", "No valid variables selected for export.")
 
     def update_selected_variables(self, indexes):
         """
-        Update root-level variables by reloading their entries in the tree.
+        Reload root-level variables for each selected item.
         """
-        for index in indexes:
-            if index.column() == 0:  # Only process the "Variable" column
-                item = self.model.itemFromIndex(index)
-                if item and item.parent() is None:  # Check for root-level item
-                    path = item.text()
-                    value = getattr(self.data_source, path,
-                                    None)  # Use `data_source` instead
-                    if value is not None:
-                        self.unload_and_reload_item(item, value, path)
-                    else:
-                        logger.warning(f"Root variable '{path}' is unavailable.")
+        for idx in indexes:
+            if idx.column() != 0:
+                continue
+            item = self.model.itemFromIndex(idx)
+            if item and item.parent() is None:
+                var_name = item.text()
+                val = getattr(self.data_source, var_name, None)
+                if val is not None:
+                    self.unload_and_reload_item(item, val, var_name)
+                else:
+                    logger.warning(f"Root variable '{var_name}' is unavailable.")
 
     def unload_and_reload_item(self, item, value, path):
         """
-        Unload and reload a tree item to reflect updated values.
+        Clear an item's children and reload them, updating Type, Size, Value, Memory columns.
         """
         try:
             logger.debug(f"Unloading and reloading item '{path}' with value: {value}")
 
-            # Update parent item's Type, Value, and Memory columns
-            item_type = type(value).__name__
-            formatted_value = self.format_value(value)
-            memory_usage = self.calculate_memory_usage(value)
+            # check plugin
+            handler = None
+            for data_type, h in type_handlers.items():
+                if isinstance(value, data_type):
+                    handler = h
+                    break
 
-            self.model.itemFromIndex(item.index().sibling(item.row(), 1)).setText(
-                item_type)  # Type column
-            self.model.itemFromIndex(item.index().sibling(item.row(), 2)).setText(
-                formatted_value)  # Value column
-            self.model.itemFromIndex(item.index().sibling(item.row(), 3)).setText(
-                memory_usage)  # Memory column
-
-            logger.info(f"Updated columns for item '{path}'.")
-
-            # Clear existing children
-            item.removeRows(0, item.rowCount())
-            logger.info(f"Unloaded children for variable '{path}'.")
-
-            # Reload children if the variable can be expanded
-            if self.can_expand(value):
-                self.load_children(item, value)
-                logger.info(f"Reloaded children for variable '{path}'.")
+            if handler:
+                rep = handler(value)
+                value_type = infer_type_hint_general(value)
+                if rep.shape:
+                    if isinstance(value, str):
+                        size_str = str(len(value))
+                    else:
+                        size_str = ", ".join(map(str, rep.shape))
+                elif self.can_expand(value):
+                    size_str = self.calculate_size(value)
+                else:
+                    size_str = "N/A"
+                formatted_value = str(rep.value_summary) if rep.value_summary else self.format_value(value)
+                memory_usage = self.format_bytes(rep.nbytes)
             else:
-                logger.info(f"Variable '{path}' is not expandable.")
-        except Exception as e:
-            logger.error(f"Error unloading and reloading item '{path}': {e}")
+                value_type = infer_type_hint_general(value)
+                size_str = self.calculate_size(value)
+                formatted_value = self.format_value(value)
+                memory_usage = self.calculate_memory_usage(value)
 
-    def update_all_references(self, item, value, path):
-        """
-        Update all tree items referencing the same object.
-        """
-        try:
-            # Iterate through all rows in the model
-            for row in range(self.model.rowCount()):
-                sibling_item = self.model.item(row, 0)  # Get the variable tree item
-                sibling_path = self.resolve_item_path(sibling_item)
-                sibling_value = self.resolve_variable(sibling_path)
-
-                # Check if the sibling references the same object
-                if sibling_value is value:
-                    self.update_tree_item(sibling_item, sibling_value, sibling_path)
-                    logger.info(f"Updated display for shared object '{path}'.")
-
-            # Update the originally selected item
-            self.update_tree_item(item, value, path)
-        except Exception as e:
-            logger.error(f"Error updating all references for '{path}': {e}")
-
-    def update_tree_item(self, item, value, path):
-        """
-        Update the tree item and its sub-items based on the new value.
-        """
-        try:
-            # Update Type, Value, and Memory columns
-            self.model.itemFromIndex(
-                item.index().sibling(item.index().row(), 1)).setText(
-                type(value).__name__)
-            formatted_value = self.format_value(value)
-            self.model.itemFromIndex(
-                item.index().sibling(item.index().row(), 2)).setText(formatted_value)
-            memory_usage = self.calculate_memory_usage(value)
-            self.model.itemFromIndex(
-                item.index().sibling(item.index().row(), 3)).setText(memory_usage)
-            logger.info(f"Updated display for variable '{path}'.")
+            # Update columns
+            self.model.itemFromIndex(item.index().sibling(item.row(), 1)).setText(value_type)
+            self.model.itemFromIndex(item.index().sibling(item.row(), 2)).setText(size_str)
+            self.model.itemFromIndex(item.index().sibling(item.row(), 3)).setText(formatted_value)
+            self.model.itemFromIndex(item.index().sibling(item.row(), 4)).setText(memory_usage)
+            logger.info(f"Updated columns for '{path}'.")
 
             # Clear existing children
             item.removeRows(0, item.rowCount())
+            logger.info(f"Unloaded children for '{path}'.")
 
-            # Reload children if the variable is expandable
+            # Reload children
             if self.can_expand(value):
                 self.load_children(item, value)
+                logger.info(f"Reloaded children for '{path}'.")
         except Exception as e:
-            logger.error(f"Error updating tree item '{path}': {e}")
+            logger.error(f"Error unloading/reloading '{path}': {e}")
+
+    def resolve_variable(self, path):
+        """
+        Convert a path string (like root["key"][0].child_attr) to a live object.
+        """
+        try:
+            pattern = re.compile(r'\w+|\.\w+|\["[^"]*"\]|\[\d+\]')
+            components = pattern.findall(path)
+            if not components:
+                return None
+
+            root_component = components[0]
+            value = getattr(self.data_source, root_component, None)
+            if value is None:
+                return None
+
+            for comp in components[1:]:
+                if comp.startswith("["):
+                    # dict key or list index
+                    if '"' in comp:
+                        key = comp.strip('["]')
+                        if isinstance(value, dict):
+                            value = value.get(key, None)
+                            if value is None:
+                                return None
+                        else:
+                            return None
+                    else:
+                        idx = int(comp.strip("[]"))
+                        if isinstance(value, list) and 0 <= idx < len(value):
+                            value = value[idx]
+                        else:
+                            return None
+                elif comp.startswith("."):
+                    attr = comp.strip(".")
+                    if hasattr(value, attr):
+                        value = getattr(value, attr, None)
+                    else:
+                        return None
+                else:
+                    # unrecognized
+                    return None
+            return value
+        except Exception as e:
+            logger.error(f"Error resolving variable path '{path}': {e}")
+            return None
+
+    def resolve_item_path(self, item):
+        """
+        Reconstruct the path string by traversing up the parents,
+        then descending into lists/dicts/attributes as needed.
+        """
+        parts = []
+        cur = item
+        while cur is not None:
+            parts.append(cur.text())
+            cur = cur.parent()
+        parts.reverse()
+
+        # Start from data_source
+        path = ""
+        value = None
+        for i, part in enumerate(parts):
+            if i == 0:
+                path = part
+                value = getattr(self.data_source, part, None)
+            else:
+                if isinstance(value, list):
+                    path += part
+                    try:
+                        idx = int(part.strip("[]"))
+                        value = value[idx]
+                    except:
+                        value = None
+                elif isinstance(value, dict):
+                    # escape quotes
+                    escaped_key = part.replace('"', '\\"').replace("'", "\\'")
+                    path += f'["{escaped_key}"]'
+                    value = value.get(part, None)
+                elif hasattr(value, part):
+                    path += f".{part}"
+                    value = getattr(value, part, None)
+                else:
+                    path += f".{part}"
+                    value = None
+        return path
 
     def copy_variable_path(self, indexes):
-        """Copy the full path of the selected variables to the clipboard."""
+        """
+        Copy the full path of the variable(s) to the clipboard.
+        """
         paths = []
-        for index in indexes:
-            if index.column() != 0:
-                continue  # Only process Variable column
-            item = self.model.itemFromIndex(index)
+        for idx in indexes:
+            if idx.column() != 0:
+                continue
+            item = self.model.itemFromIndex(idx)
             if item:
                 path = self.resolve_item_path(item)
                 paths.append(path)
@@ -581,209 +687,43 @@ class VariableViewer(QMainWindow):
             logger.debug(f"Copied to clipboard: {paths}")
 
     def add_console(self, alias="data_source"):
-        # Create an in-process kernel manager
+        """
+        Opens an IPython/Qt console in a separate window, injecting self.data_source under the given alias.
+        """
         kernel_manager = QtInProcessKernelManager()
         kernel_manager.start_kernel()
         kernel_manager.kernel.gui = "qt"
 
-        # Create a kernel client and start channels
         kernel_client = kernel_manager.client()
         kernel_client.start_channels()
 
-        # Create a Rich Jupyter Widget
         console = RichJupyterWidget()
         console.kernel_manager = kernel_manager
         console.kernel_client = kernel_client
 
-        # Create a separate window for the console
         console_window = QWidget()
         console_window.setWindowTitle("Console")
         layout = QVBoxLayout(console_window)
         layout.addWidget(console)
-        console_window.resize(600, 960)  # Set initial size for the console window
+        console_window.resize(600, 960)
         console_window.show()
 
-        # Store a reference to prevent garbage collection
-        self.console_window = console_window
+        self.console_window = console_window  # keep a reference to avoid GC
 
-        # Inject the data source into the console's namespace under the alias
+        # Inject data_source
         kernel = kernel_manager.kernel.shell
-        kernel.push({alias: self.data_source})  # Use alias here
+        kernel.push({alias: self.data_source})
 
         logger.info(f"Console window opened and '{alias}' injected.")
 
-    # Signal Handlers
-    def on_variable_added(self, name):
-        """Handle a new variable being added."""
-        logger.info(f"Signal received: variable_added('{name}')")
-        value = getattr(self.data_source, name, None)
-        self.add_variable(name, value, self.model.invisibleRootItem())
-
-    def on_variable_updated(self, name):
-        """Handle a variable being updated."""
-        logger.info(f"Signal received: variable_updated('{name}')")
-        # Find the top-level item matching the variable_name
-        root = self.model.invisibleRootItem()
-        for row in range(root.rowCount()):
-            item = root.child(row, 0)
-            if item.text() == name:
-                # Update Type, Value, and Memory columns
-                try:
-                    value = getattr(self.data_source, name, None)
-                    if value is not None:
-                        logger.debug(
-                            f"Updating variable '{name}' with new value: {value}")
-                        item.setText(type(value).__name__)  # Update type
-                        formatted_value = self.format_value(value)
-                        self.model.item(row, 2).setText(formatted_value)
-                        memory_usage = self.calculate_memory_usage(value)
-                        self.model.item(row, 3).setText(memory_usage)
-                        logger.info(f"Updated display for variable '{name}'.")
-                    else:
-                        self.model.item(row, 2).setText("<Unavailable>")
-                        self.model.item(row, 3).setText("N/A")
-                        logger.warning(f"Variable '{name}' is now unavailable.")
-                except AttributeError as e:
-                    logger.error(f"Error accessing '{name}' in data source: {e}")
-                break
-        else:
-            logger.warning(f"Variable '{name}' not found in the viewer.")
-
-    def on_variable_removed(self, name):
-        """Handle a variable being removed."""
-        logger.info(f"Signal received: variable_removed('{name}')")
-        # Find the top-level item matching the variable_name and remove it
-        root = self.model.invisibleRootItem()
-        for row in range(root.rowCount()):
-            item = root.child(row, 0)
-            if item.text() == name:
-                self.model.removeRow(row)
-                logger.info(f"Removed variable '{name}' from the viewer.")
-                break
-        else:
-            logger.warning(f"Variable '{name}' not found in the viewer.")
-
-    def resolve_variable(self, path):
-        """Resolve a variable path to its value in a nested structure."""
-        try:
-            # Pattern to match attributes (.attr), dictionary keys (["key"]), and list indices ([index])
-            pattern = re.compile(r'\w+|\.\w+|\["[^"]*"\]|\[\d+\]')
-            components = pattern.findall(path)
-
-            if not components:
-                logger.error(f"Invalid path: {path}")
-                return None
-
-            # Extract the root component (the starting variable or attribute)
-            root_component = components[0]
-            value = getattr(self.data_source, root_component, None)
-            if value is None:
-                logger.error(f"Root variable '{root_component}' not found.")
-                return None
-
-            # Iterate through the remaining path components to resolve nested values
-            for comp in components[1:]:
-                if comp.startswith("[") and comp.endswith(
-                        "]"):  # Handles list indices and dictionary keys
-                    if '"' in comp:  # Dictionary key
-                        key = comp.strip('["]')
-                        if isinstance(value, dict):
-                            value = value.get(key, None)
-                            if value is None:
-                                logger.error(
-                                    f"Key '{key}' not found in dictionary at '{root_component}'.")
-                                return None
-                        else:
-                            logger.error(
-                                f"Expected a dictionary, got {type(value).__name__} for key access '{key}'.")
-                            return None
-                    else:  # List index
-                        try:
-                            index = int(comp.strip("[]"))
-                            if isinstance(value, list):
-                                if 0 <= index < len(value):
-                                    value = value[index]
-                                else:
-                                    logger.error(
-                                        f"Index {index} out of range for list at '{root_component}'.")
-                                    return None
-                            else:
-                                logger.error(
-                                    f"Expected a list, got {type(value).__name__} for index access '{index}'.")
-                                return None
-                        except ValueError:
-                            logger.error(
-                                f"Invalid list index '{comp}' in path '{path}'.")
-                            return None
-                elif comp.startswith("."):  # Object attribute
-                    attr = comp.strip(".")
-                    if hasattr(value, attr):
-                        value = getattr(value, attr, None)
-                        if value is None:
-                            logger.error(
-                                f"Attribute '{attr}' of '{path}' resolved to None.")
-                            return None
-                    else:
-                        logger.error(
-                            f"Attribute '{attr}' not found in object of type {type(value).__name__}.")
-                        return None
-                else:  # Unrecognized path component
-                    logger.error(
-                        f"Unexpected path component '{comp}' in path '{path}'.")
-                    return None
-
-            return value
-        except Exception as e:
-            logger.error(f"Error resolving variable '{path}': {e}")
-            return None
-
-    def resolve_item_path(self, item):
-        """Get the full path of the variable represented by the tree item."""
-        parts = []
-        current_item = item
-        while current_item is not None:
-            parts.append(current_item.text())
-            current_item = current_item.parent()
-        # Reverse to get path from root to the item
-        parts.reverse()
-
-        path = ""
-        value = None
-        for i, part in enumerate(parts):
-            if i == 0:
-                # Root variable
-                path = part
-                value = getattr(self.data_source, part, None)
-            else:
-                if isinstance(value, list):
-                    # part should be [index]
-                    path += part  # part is like [0]
-                    try:
-                        index = int(part.strip("[]"))
-                        value = value[index]
-                    except (ValueError, IndexError, TypeError):
-                        value = None
-                elif isinstance(value, dict):
-                    # part is a key
-                    # Escape quotes in key if necessary
-                    escaped_key = part.replace('"', '\\"').replace("'", "\\'")
-                    path += f'["{escaped_key}"]'
-                    value = value.get(part, None)
-                elif hasattr(value, part):
-                    # part is an attribute
-                    path += f'.{part}'
-                    value = getattr(value, part, None)
-                else:
-                    # Unknown type, default to dot notation
-                    path += f'.{part}'
-                    value = getattr(value, part, None)
-        return path
-
 
 class VariableStandardItemModel(QStandardItemModel):
+    """
+    Custom QStandardItemModel that supports dragging the variable path from the tree.
+    """
     def __init__(self, viewer, alias="data_source", parent=None):
         super().__init__(parent)
-        self.viewer = viewer  # Reference to VariableViewer
+        self.viewer = viewer
         self.alias = alias
 
     def supportedDragActions(self):
@@ -792,14 +732,13 @@ class VariableStandardItemModel(QStandardItemModel):
     def mimeData(self, indexes):
         mime_data = super().mimeData(indexes)
         paths = []
-        for index in indexes:
-            if index.column() != 0:
-                # Skip non-variable columns
+        for idx in indexes:
+            if idx.column() != 0:
                 continue
-            item = self.itemFromIndex(index)
+            item = self.itemFromIndex(idx)
             if item:
                 path = self.viewer.resolve_item_path(item)
-                if not path.startswith(self.alias):
+                if path and not path.startswith(self.alias):
                     path = f"{self.alias}.{path}"
                 paths.append(path)
         if paths:
@@ -812,5 +751,4 @@ class VariableStandardItemModel(QStandardItemModel):
             return Qt.ItemFlag.NoItemFlags
         if index.column() == 0:
             return super().flags(index) | Qt.ItemFlag.ItemIsDragEnabled
-        else:
-            return super().flags(index)
+        return super().flags(index)
