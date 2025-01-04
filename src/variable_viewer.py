@@ -150,6 +150,10 @@ class VariableViewer(QMainWindow):
         # Initial load
         self.refresh_view()
 
+        for i in range(self.model.columnCount()):
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+            header.setMinimumSectionSize(50)  # Adjust as needed
+
     @staticmethod
     def load_plugins(plugin_dir=None):
         """
@@ -187,6 +191,11 @@ class VariableViewer(QMainWindow):
                             logger.info(f"Skipped {filename}: No register_handlers function")
                     except Exception as e:
                         logger.error(f"Failed to load plugin {filename}: {e}")
+
+    def resize_all_columns(self):
+        """Resize all columns to fit their contents."""
+        for column in range(self.model.columnCount()):
+            self.tree_view.resizeColumnToContents(column)
 
     def refresh_view(self):
         """
@@ -296,6 +305,8 @@ class VariableViewer(QMainWindow):
                         value = self.resolve_variable(path)
                         if value is not None:
                             self.load_children(item, value)
+                            # After loading children, resize columns to fit new content
+                            self.resize_all_columns()
         except Exception as e:
             logger.error(f"Error handling expand: {e}")
 
@@ -341,6 +352,8 @@ class VariableViewer(QMainWindow):
                     except Exception as sub_e:
                         logger.error(f"Error accessing {attr}: {sub_e}")
                         self.add_variable(attr, f"<Error: {sub_e}>", parent_item, lazy_load=False)
+            # After loading children, adjust column sizes
+            self.resize_all_columns()
         except Exception as e:
             logger.error(f"Error loading children: {e}")
 
