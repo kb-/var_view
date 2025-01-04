@@ -20,13 +20,32 @@ from PyQt6.QtWidgets import QApplication
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
 
-
 type_handlers = {}
 
 
 def register_type_handler(data_type, handler):
     """Register a custom handler for a specific data type."""
     type_handlers[data_type] = handler
+
+
+class VariableRepresentation:
+    def __init__(self, nbytes, shape=None, dtype=None, extra_info=None):
+        self.nbytes = nbytes
+        self.shape = shape
+        self.dtype = dtype
+        self.extra_info = extra_info
+
+    def __str__(self):
+        parts = []
+        if self.shape:
+            parts.append(f"shape={self.shape}")
+        if self.dtype:
+            parts.append(f"dtype={self.dtype}")
+        if self.nbytes:
+            parts.append(f"memory={VariableViewer.format_bytes(self.nbytes)}")
+        if self.extra_info:
+            parts.append(str(self.extra_info))
+        return ", ".join(parts)
 
 
 class VariableViewer(QMainWindow):
@@ -108,7 +127,8 @@ class VariableViewer(QMainWindow):
                     plugin_path = os.path.join(directory, filename)
                     try:
                         # Load the plugin module dynamically
-                        spec = importlib.util.spec_from_file_location("plugin", plugin_path)
+                        spec = importlib.util.spec_from_file_location("plugin",
+                                                                      plugin_path)
                         plugin = importlib.util.module_from_spec(spec)
                         spec.loader.exec_module(plugin)
 
@@ -117,7 +137,8 @@ class VariableViewer(QMainWindow):
                             plugin.register_handlers(register_type_handler)
                             logger.info(f"Loaded plugin: {filename}")
                         else:
-                            logger.info(f"Skipped {filename}: No register_handlers function")
+                            logger.info(
+                                f"Skipped {filename}: No register_handlers function")
                     except Exception as e:
                         logger.error(f"Failed to load plugin {filename}: {e}")
 
@@ -204,33 +225,66 @@ class VariableViewer(QMainWindow):
                 QStandardItem("N/A")
             ])
 
-    def calculate_memory_usage(self, value):
-        """Calculate memory usage of a variable and format it with appropriate units."""
+    @staticmethod
+    def calculate_memory_usage(value):
+        """
+        Calculate memory usage of a variable using VariableRepresentation.
+        """
         try:
-            if hasattr(value, 'nbytes'):  # Handles both torch.Tensor and np.ndarray
-                bytes_size = value.nbytes
-            else:
-                # Fallback for standard Python objects
-                import sys
-                bytes_size = sys.getsizeof(value)
+            for data_type, handler in type_handlers.items():
+                if isinstance(value, data_type):
+                    representation = handler(value)
+                    if isinstance(representation, VariableRepresentation):
+                        return VariableViewer.format_bytes(representation.nbytes)
 
-            # Format the size into appropriate units
-            units = ['B', 'KB', 'MB', 'GB', 'TB']
-            for unit in units:
-                if bytes_size < 1024:
-                    if unit == 'B':
-                        return f"{bytes_size} {unit}"  # Avoid decimals for bytes
-                    return f"{bytes_size:.2f} {unit}"
-                bytes_size /= 1024
-            return f"{bytes_size:.2f} PB"  # Fall back for very large sizes
+            if hasattr(value, 'nbytes'):
+                return VariableViewer.format_bytes(value.nbytes)
+            else:
+                import sys
+                return VariableViewer.format_bytes(sys.getsizeof(value))
         except Exception as e:
             logger.error(f"Error calculating memory usage: {e}")
             return "N/A"
 
-    def can_expand(self, value):
+    @staticmethod
+    def format_bytes(bytes_size):
+        """
+        Convert bytes to a human-readable format.
+        """
+        try:
+            units = ['B', 'KB', 'MB', 'GB', 'TB']
+            for unit in units:
+                if bytes_size < 1024:
+                    if unit == 'B':  # Avoid decimals for bytes
+                        return f"{bytes_size} {unit}"
+                    return f"{bytes_size:.2f} {unit}"
+                bytes_size /= 1024
+            return f"{bytes_size:.2f} PB"  # Handle extremely large sizes
+        except Exception as e:
+            logger.error(f"Error formatting bytes: {e}")
+            return "N/A"
+
+    @staticmethod
+    def format_value(value):
+        """
+        Format the value for display using custom handlers.
+        """
+        try:
+            for data_type, handler in type_handlers.items():
+                if isinstance(value, data_type):
+                    representation = handler(value)
+                    if isinstance(representation, VariableRepresentation):
+                        return str(representation)
+            return str(value)
+        except Exception as e:
+            logger.error(f"Error formatting value: {e}")
+            return "<Error>"
+
+    @staticmethod
+    def can_expand(value):
         """Check if a variable can be expanded."""
         return isinstance(value, (dict, list, QObject)) or (
-            hasattr(value, '__dict__') and not isinstance(value, (str, bytes))
+                hasattr(value, '__dict__') and not isinstance(value, (str, bytes))
         )
 
     def handle_expand(self, index):
@@ -318,26 +372,26 @@ class VariableViewer(QMainWindow):
                 QStandardItem("N/A")
             ])
 
-    def format_value(self, value):
-        """Format the value for display, checking for custom handlers."""
-        try:
-            # Check if a custom handler exists for this type
-            for data_type, handler in type_handlers.items():
-                if isinstance(value, data_type):
-                    return handler(value)
-
-            # Default fallback formatting
-            if isinstance(value, str):
-                return value if len(value) <= 50 else value[:47] + "..."
-            elif isinstance(value, (list, dict)):
-                return f"{type(value).__name__}({len(value)})"
-            elif hasattr(value, '__dict__'):
-                return f"<{type(value).__name__}>"
-            else:
-                return str(value)
-        except Exception as e:
-            logger.error(f"Error formatting value: {e}")
-            return "<Error>"
+    # def format_value(self, value):
+    #     """Format the value for display, checking for custom handlers."""
+    #     try:
+    #         # Check if a custom handler exists for this type
+    #         for data_type, handler in type_handlers.items():
+    #             if isinstance(value, data_type):
+    #                 return handler(value)
+    #
+    #         # Default fallback formatting
+    #         if isinstance(value, str):
+    #             return value if len(value) <= 50 else value[:47] + "..."
+    #         elif isinstance(value, (list, dict)):
+    #             return f"{type(value).__name__}({len(value)})"
+    #         elif hasattr(value, '__dict__'):
+    #             return f"<{type(value).__name__}>"
+    #         else:
+    #             return str(value)
+    #     except Exception as e:
+    #         logger.error(f"Error formatting value: {e}")
+    #         return "<Error>"
 
     def show_context_menu(self, position):
         indexes = self.tree_view.selectedIndexes()
@@ -755,5 +809,3 @@ class VariableStandardItemModel(QStandardItemModel):
             return super().flags(index) | Qt.ItemFlag.ItemIsDragEnabled
         else:
             return super().flags(index)
-
-
