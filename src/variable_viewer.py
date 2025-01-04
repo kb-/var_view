@@ -4,6 +4,7 @@ import logging
 import inspect
 import os
 import re
+from typing import Any
 
 from PyQt6.QtWidgets import (
     QMainWindow, QTreeView, QVBoxLayout, QWidget, QMenu, QMessageBox,
@@ -162,7 +163,7 @@ class VariableViewer(QMainWindow):
     def refresh_view(self):
         """Refresh the view using the generic data source."""
         self.model.clear()
-        self.model.setHorizontalHeaderLabels(["Variable", "Type", "Value", "Memory"])
+        self.model.setHorizontalHeaderLabels(["Variable", "Type", "Size", "Value", "Memory"])
 
         # Retrieve all top-level attributes/items from the data source
         all_vars = {
@@ -178,53 +179,137 @@ class VariableViewer(QMainWindow):
 
     def add_variable(self, name, value, parent_item, lazy_load=True):
         try:
-            # Determine the type
-            value_type = type(value).__name__
+            # Infer type using the new type hinting function
+            inferred_type = self.infer_type_hint_general(value)
 
-            # Format the value nicely
-            formatted_value = self.format_value(value)
+            # Determine size
+            size = self.infer_size(value)
+
+            # Format the value sample
+            formatted_value = self.format_value_sample(value)
 
             # Calculate memory usage
             memory_usage = self.calculate_memory_usage(value)
 
             # Create items for the columns
             item_name = QStandardItem(name)
-            item_type = QStandardItem(value_type)
+            item_type = QStandardItem(inferred_type)
+            item_size = QStandardItem(size)
             item_value = QStandardItem(formatted_value)
             item_memory = QStandardItem(memory_usage)
 
-            # Prevent editing and enable dragging only for Variable column
+            # Prevent editing and enable dragging only for the Variable column
             item_name.setEditable(False)
             item_name.setFlags(item_name.flags() | Qt.ItemFlag.ItemIsDragEnabled)
             item_type.setEditable(False)
+            item_size.setEditable(False)
             item_value.setEditable(False)
             item_memory.setEditable(False)
-            # Only Variable column is draggable as per flags method
 
             # Append items to the parent
-            parent_item.appendRow([item_name, item_type, item_value, item_memory])
-
-            # Conditional Debug Log
-            if name in ["list_var", "nested_dict", "test_obj"]:  # Adjust as needed
-                logger.debug(
-                    f"Added variable '{name}' of type '{value_type}' with value '{formatted_value}'.")
+            parent_item.appendRow(
+                [item_name, item_type, item_size, item_value, item_memory])
 
             # Add a placeholder for lazy loading if the variable can be expanded
             if lazy_load and self.can_expand(value):
                 placeholder = QStandardItem("Loading...")
-                # Placeholder should not be draggable
                 placeholder.setEditable(False)
-                # Append a full row with placeholder and empty items for other columns
                 item_name.appendRow(
-                    [placeholder, QStandardItem(), QStandardItem(), QStandardItem()])
+                    [placeholder, QStandardItem(), QStandardItem(), QStandardItem(),
+                     QStandardItem()]
+                )
         except Exception as e:
             logger.error(f"Error adding variable '{name}': {e}")
             parent_item.appendRow([
                 QStandardItem(name),
                 QStandardItem("Error"),
+                QStandardItem("N/A"),
                 QStandardItem(f"<Error: {e}>"),
                 QStandardItem("N/A")
             ])
+
+    @staticmethod
+    def format_value_sample(value, char_limit=150) -> str:
+        """
+        Create a sample string representation of the value within the char_limit.
+        """
+        try:
+            if isinstance(value, (list, tuple, set)):
+                elements = []
+                current_length = 0
+                for element in value:
+                    element_str = str(element) if hasattr(element, "__str__") else type(
+                        element).__name__
+                    if current_length + len(element_str) + 2 > char_limit:  # 2 for ", "
+                        elements.append("...")
+                        break
+                    elements.append(element_str)
+                    current_length += len(element_str) + 2
+                return ", ".join(elements)
+            elif isinstance(value, dict):
+                elements = []
+                current_length = 0
+                for k, v in value.items():
+                    pair_str = f"{k}: {v}" if hasattr(v,
+                                                      "__str__") else f"{k}: {type(v).__name__}"
+                    if current_length + len(pair_str) + 2 > char_limit:
+                        elements.append("...")
+                        break
+                    elements.append(pair_str)
+                    current_length += len(pair_str) + 2
+                return ", ".join(elements)
+            else:
+                value_str = str(value)
+                return value_str[:char_limit] + "..." if len(
+                    value_str) > char_limit else value_str
+        except Exception as e:
+            logger.error(f"Error formatting value sample: {e}")
+            return "<Error>"
+
+    @staticmethod
+    def infer_size(value) -> str:
+        """
+        Infer the size of the object as comma-separated dimensions.
+        """
+        try:
+            if hasattr(value, "shape"):
+                return ", ".join(map(str, value.shape))
+            elif isinstance(value, (list, tuple)):
+                return str(len(value))
+            else:
+                return "N/A"
+        except Exception as e:
+            logger.error(f"Error inferring size: {e}")
+            return "N/A"
+
+    @staticmethod
+    def infer_type_hint_general(data: Any) -> str:
+        """
+        Dynamically infers a type hint for the given input data.
+        """
+        from collections.abc import Iterable
+
+        if isinstance(data, dict):
+            if len(data) == 0:
+                return "dict"
+            key_types = {type(k).__name__ for k in data.keys()}
+            value_types = {type(v).__name__ for v in data.values()}
+            combined_keys = " | ".join(sorted(key_types))
+            combined_values = " | ".join(sorted(value_types))
+            return f"dict[{combined_keys}, {combined_values}]"
+
+        elif isinstance(data, Iterable) and not isinstance(data, (str, bytes)):
+            try:
+                if len(data) == 0:
+                    return type(data).__name__
+            except TypeError:
+                pass
+            element_types = {type(element).__name__ for element in data}
+            combined_type = " | ".join(sorted(element_types))
+            return f"{type(data).__name__}[{combined_type}]"
+
+        else:
+            return type(data).__name__
 
     @staticmethod
     def calculate_memory_usage(value):
