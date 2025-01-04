@@ -1,4 +1,4 @@
-# numpy_plugin.py
+# src/plugins/numpy_plugin.py
 import numpy as np
 
 

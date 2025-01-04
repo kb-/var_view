@@ -1,3 +1,4 @@
+# src/main.py
 import sys
 import logging
 import numpy as np
@@ -10,7 +11,7 @@ from variable_viewer import VariableViewer  # Ensure this module is correctly im
 
 # Configure logging for debugging purposes
 logging.basicConfig(
-    level=logging.DEBUG,  # Set to DEBUG to see detailed logs
+    level=logging.WARNING,  # Set to DEBUG to see detailed logs
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 

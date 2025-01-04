@@ -1,4 +1,4 @@
-# opencv_plugin.py
+# src/plugins/opencv_plugin.py
 import cv2
 
 

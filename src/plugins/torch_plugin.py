@@ -1,4 +1,4 @@
-# torch_plugin.py
+# src/plugins/torch_plugin.py
 import torch
 
 
