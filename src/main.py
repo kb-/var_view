@@ -1,8 +1,8 @@
-# src/main.py
 import sys
 import logging
 import numpy as np
 import torch
+import cv2
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QTimer
 
@@ -32,6 +32,9 @@ class AppDataSource:
         }
         self.cyclic_ref = {}
         self.cyclic_ref["self"] = self.cyclic_ref  # Establish cyclic reference
+
+        # Create a UMat example
+        self.cv2_umat = cv2.UMat(np.random.randint(0, 255, (500, 500), dtype=np.uint8))
 
         # Custom objects
         class Engine:
