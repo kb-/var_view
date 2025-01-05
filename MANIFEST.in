@@ -1,0 +1,2 @@
+# Exclude the plugins folder
+exclude var_view/plugins/*
