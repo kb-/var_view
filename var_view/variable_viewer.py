@@ -685,6 +685,31 @@ class VariableViewer(QMainWindow):
             clipboard.setText("\n".join(paths))
             logger.debug(f"Copied to clipboard: {paths}")
 
+    def has_variable(self, path: str) -> bool:
+        """
+        Check if a variable with the given path exists in the tree model.
+
+        Parameters:
+        - path (str): The dot-separated path of the variable (e.g., "c.hi").
+
+        Returns:
+        - bool: True if the variable exists, False otherwise.
+        """
+        parts = path.split('.')
+        current_items = self.model.invisibleRootItem()
+
+        for part in parts:
+            found = False
+            for row in range(current_items.rowCount()):
+                item = current_items.child(row, 0)  # Column 0: Variable Name
+                if item.text() == part:
+                    current_items = item
+                    found = True
+                    break
+            if not found:
+                return False
+        return True
+
     def add_console(self, alias="data_source"):
         """
         Opens an IPython/Qt console in a separate window, injecting self.data_source under the given alias.
@@ -739,13 +764,28 @@ class VariableViewer(QMainWindow):
                 cell = result.info.raw_cell.strip()
                 logger.debug(f"Executed command: {cell}")
 
-                # Define your condition here. For example:
-                # Refresh if 'refresh_trigger' is in the executed command
-                if "c." in cell:
-                    logger.info(f"Refreshing view triggered by command: {cell}")
-                    self.refresh_view()
+                # Check if the command starts with f"{alias}."
+                if cell.startswith(f"{alias}."):
+                    # Extract the parameter being accessed or assigned
+                    # This regex captures the part after the alias and before any space or operator
+                    param_match = re.match(
+                        rf"{re.escape(alias)}\.([A-Za-z_][A-Za-z0-9_]*)", cell)
+                    if param_match:
+                        param_name = param_match.group(1)
+                        full_param_name = f"{param_name}"
+
+                        # Check if the parameter already exists in the viewer
+                        if self.has_variable(full_param_name):
+                            logger.debug(
+                                f"Parameter '{full_param_name}' already exists. No refresh needed.")
+                        else:
+                            logger.info(
+                                f"Parameter '{full_param_name}' does not exist. Refreshing view.")
+                            self.refresh_view()
+                    else:
+                        logger.debug(f"Could not parse parameter from command: {cell}")
                 else:
-                    logger.debug(f"No refresh needed for command: {cell}")
+                    logger.debug(f"Command does not start with '{alias}.': {cell}")
             except Exception as e:
                 logger.error(f"Error during conditional refresh: {e}")
 
