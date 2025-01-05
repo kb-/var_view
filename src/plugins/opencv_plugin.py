@@ -14,7 +14,7 @@ def umat_formatter(value: cv2.UMat):
             nbytes=mat.nbytes,
             shape=shape,
             dtype=dtype,
-            value_summary=f"sample={sample}... dtype={dtype}"
+            value_summary=f"{sample}... dtype={dtype}"
         )
     except Exception as e:
         return VariableRepresentation(nbytes=0, value_summary=f"<Error: {e}>")
