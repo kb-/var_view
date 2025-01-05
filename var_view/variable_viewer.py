@@ -1,12 +1,9 @@
 # var_view/variable_viewer.py
 
-import importlib
 import logging
 import inspect
-import os
 import re
 import sys  # Added import for sys.getsizeof
-from typing import Optional, List
 
 from PyQt6.QtWidgets import (
     QMainWindow, QTreeView, QVBoxLayout, QWidget, QMenu, QMessageBox,
@@ -14,7 +11,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QStandardItemModel, QStandardItem, QAction
 from PyQt6.QtCore import Qt, QObject
-from icecream import ic
 
 # Console imports
 from qtconsole.rich_jupyter_widget import RichJupyterWidget
