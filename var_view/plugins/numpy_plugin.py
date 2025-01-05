@@ -1,7 +1,7 @@
-# src/plugins/numpy_plugin.py
+# var_view/plugins/numpy_plugin.py
 import numpy as np
 
-from src.variable_viewer import VariableRepresentation
+from var_view.variable_viewer import VariableRepresentation
 
 
 def numpy_variable_formatter(value: np.ndarray):

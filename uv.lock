@@ -1102,7 +1102,7 @@ wheels = [
 [[package]]
 name = "var-view"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "dill" },
     { name = "h5py" },

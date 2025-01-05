@@ -1,4 +1,4 @@
-# src/main.py
+# var_view/main.py
 import sys
 import logging
 import numpy as np

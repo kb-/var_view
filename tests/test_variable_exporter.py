@@ -10,7 +10,7 @@ from PIL import Image
 import pickle
 import collections as cl  # Added import for collections.deque
 
-from src.app.variableExporter import VariableExporter  # Adjust the import path as needed
+from var_view.app.variableExporter import VariableExporter  # Adjust the import path as needed
 
 
 # Define custom classes for testing

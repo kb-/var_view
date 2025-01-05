@@ -1,4 +1,4 @@
-# src/variable_viewer.py
+# var_view/variable_viewer.py
 
 import importlib
 import logging

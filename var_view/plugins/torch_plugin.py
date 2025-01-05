@@ -1,7 +1,7 @@
-# src/plugins/torch_plugin.py
+# var_view/plugins/torch_plugin.py
 import torch
 
-from src.variable_viewer import VariableRepresentation
+from var_view.variable_viewer import VariableRepresentation
 
 
 def torch_tensor_formatter(value: torch.Tensor):

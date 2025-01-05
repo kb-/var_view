@@ -1,7 +1,7 @@
-# src/plugins/opencv_plugin.py
+# var_view/plugins/opencv_plugin.py
 import cv2
 
-from src.variable_viewer import VariableRepresentation
+from var_view.variable_viewer import VariableRepresentation
 
 
 def umat_formatter(value: cv2.UMat):
