@@ -96,7 +96,7 @@ def main():
     app = QApplication(sys.argv)
 
     # Instantiate the VariableViewer with the data source
-    viewer = VariableViewer(data_source, "myalias", plugin_dir="./plugins")
+    viewer = VariableViewer(data_source, "myalias", plugin_dir=["./plugins"])
     viewer.add_console("myalias")  # Integrate the console
     viewer.show()
 

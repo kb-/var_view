@@ -6,6 +6,7 @@ import inspect
 import os
 import re
 import sys  # Added import for sys.getsizeof
+from typing import Optional, List
 
 from PyQt6.QtWidgets import (
     QMainWindow, QTreeView, QVBoxLayout, QWidget, QMenu, QMessageBox,
@@ -155,42 +156,45 @@ class VariableViewer(QMainWindow):
         self.resize_all_columns()
 
     @staticmethod
-    def load_plugins(plugin_dir=None):
+    def load_plugins(self, plugin_dirs: Optional[List[str]] = None) -> None:
         """
-        Load plugins from the default "plugins" dir and an optional custom plugin_dir.
-        Each plugin calls register_handlers(...) for specialized data types.
+        Load plugins from the 'plugins' directory and any additional directories.
+
+        :param plugin_dirs: Optional list of directories containing additional plugins.
         """
-        plugin_dirs = set()
+        # Import and register internal plugins
+        try:
+            import var_view.plugins
+            var_view.plugins.import_plugins(register_type_handler)
+        except Exception as e:
+            logger.error(f"Error loading internal plugins: {e}")
 
-        # Default plugin directory (relative to this file)
-        default_plugin_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "plugins"))
-        plugin_dirs.add(default_plugin_dir)
+        # Load external plugins from specified directories (optional)
+        if plugin_dirs:
+            for directory in plugin_dirs:
+                abs_directory = os.path.abspath(directory)
+                if not os.path.exists(abs_directory):
+                    logger.warning(f"External plugin directory '{abs_directory}' does not exist.")
+                    continue
+                for filename in os.listdir(abs_directory):
+                    if filename.endswith(".py") and not filename.startswith("_"):
+                        # Exclude internal modules by ensuring they're not part of 'var_view'
+                        if filename in ["main.py", "variable_exporter.py", "variable_viewer.py"]:
+                            logger.warning(f"Skipping internal module '{filename}' as external plugin.")
+                            continue
+                        plugin_path = os.path.join(abs_directory, filename)
+                        try:
+                            spec = importlib.util.spec_from_file_location("external_plugin", plugin_path)
+                            plugin = importlib.util.module_from_spec(spec)
+                            spec.loader.exec_module(plugin)
 
-        # Add custom plugin directory if provided (and different from default)
-        if plugin_dir:
-            abs_plugin_dir = os.path.abspath(plugin_dir)
-            if abs_plugin_dir != default_plugin_dir:
-                plugin_dirs.add(abs_plugin_dir)
-
-        for directory in plugin_dirs:
-            if not os.path.exists(directory):
-                logger.warning(f"Plugin directory '{directory}' does not exist.")
-                continue
-            for filename in os.listdir(directory):
-                if filename.endswith(".py") and not filename.startswith("_"):
-                    plugin_path = os.path.join(directory, filename)
-                    try:
-                        spec = importlib.util.spec_from_file_location("plugin", plugin_path)
-                        plugin = importlib.util.module_from_spec(spec)
-                        spec.loader.exec_module(plugin)
-
-                        if hasattr(plugin, "register_handlers"):
-                            plugin.register_handlers(register_type_handler)
-                            logger.info(f"Loaded plugin: {filename}")
-                        else:
-                            logger.info(f"Skipped {filename}: No register_handlers function")
-                    except Exception as e:
-                        logger.error(f"Failed to load plugin {filename}: {e}")
+                            if hasattr(plugin, "register_handlers"):
+                                plugin.register_handlers(register_type_handler)
+                                logger.info(f"Loaded external plugin: {filename}")
+                            else:
+                                logger.warning(f"External plugin '{filename}' does not have a 'register_handlers' function.")
+                        except Exception as e:
+                            logger.error(f"Failed to load external plugin '{filename}': {e}")
 
     def resize_all_columns(self):
         """Resize all columns to fit their contents."""
