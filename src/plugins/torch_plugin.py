@@ -12,7 +12,7 @@ def torch_tensor_formatter(value: torch.Tensor):
         nbytes=value.element_size() * value.nelement(),
         shape=shape,
         dtype=dtype,
-        value_summary=f"sample={sample}..."
+        value_summary=f"{sample}... dtype={dtype}, device={value.device}"
     )
 
 
