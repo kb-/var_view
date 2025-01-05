@@ -7,7 +7,7 @@ import cv2
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QTimer
 
-from variable_viewer import VariableViewer  # Ensure this module is correctly implemented
+from var_view import VariableViewer  # Ensure this module is correctly implemented
 
 # Configure logging for debugging purposes
 logging.basicConfig(

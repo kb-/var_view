@@ -18,7 +18,7 @@ from PyQt6.QtCore import Qt, QObject
 from qtconsole.rich_jupyter_widget import RichJupyterWidget
 from qtconsole.inprocess import QtInProcessKernelManager
 
-from variable_exporter import VariableExporter
+from var_view.variable_exporter import VariableExporter
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
