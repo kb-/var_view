@@ -782,6 +782,7 @@ class VariableViewer(QMainWindow):
                             logger.info(
                                 f"Parameter '{full_param_name}' does not exist. Refreshing view.")
                             self.refresh_view()
+                            self.resize_all_columns()
                     else:
                         logger.debug(f"Could not parse parameter from command: {cell}")
                 else:
