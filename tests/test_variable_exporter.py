@@ -10,7 +10,7 @@ from PIL import Image
 import pickle
 import collections as cl  # Added import for collections.deque
 
-from var_view.app.variableExporter import VariableExporter  # Adjust the import path as needed
+from var_view.variable_exporter import VariableExporter
 
 
 # Define custom classes for testing
@@ -375,8 +375,6 @@ def test_batch_export_npz(exporter, tmp_file, batch_sample_data):
                 f"For custom object '{key}', got {actual} instead of either "
                 f"'{str(value)}' or a dict."
             )
-
-
 
 
 def test_batch_export_h5(exporter, tmp_file, batch_sample_data):
