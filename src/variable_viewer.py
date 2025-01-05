@@ -241,7 +241,7 @@ class VariableViewer(QMainWindow):
                 elif self.can_expand(value):
                     size_str = self.calculate_size(value)
                 else:
-                    size_str = "N/A"
+                    size_str = ""
                 # Value (prefer plugin's value_summary)
                 formatted_value = (
                     str(representation.value_summary) if representation.value_summary
@@ -261,7 +261,7 @@ class VariableViewer(QMainWindow):
             item_type = QStandardItem(value_type)
             item_size = QStandardItem(size_str)
             item_val = QStandardItem(formatted_value)
-            item_mem = QStandardItem(memory_usage if memory_usage else "N/A")  # Modified here
+            item_mem = QStandardItem(memory_usage if memory_usage else "")  # Modified here
 
             # read-only columns
             item_var.setEditable(False)
@@ -285,9 +285,9 @@ class VariableViewer(QMainWindow):
             parent_item.appendRow([
                 QStandardItem(name),
                 QStandardItem("Error"),
-                QStandardItem("N/A"),
+                QStandardItem(""),
                 QStandardItem(f"<Error: {e}>"),
-                QStandardItem("N/A")
+                QStandardItem("")
             ])
 
     def handle_expand(self, index):
@@ -379,10 +379,10 @@ class VariableViewer(QMainWindow):
                 return ", ".join(map(str, value.shape))
             elif hasattr(value, '__dict__'):
                 return str(len(vars(value)))
-            return "N/A"
+            return ""
         except Exception as e:
             logger.error(f"Error calculating size: {e}")
-            return "N/A"
+            return ""
 
     @staticmethod
     def get_element_str(obj):
@@ -426,7 +426,7 @@ class VariableViewer(QMainWindow):
         """
         Calculate memory usage of a variable.
         Only display memory for built-in data types and types handled by plugins.
-        For pointers or complex objects, return "N/A".
+        For pointers or complex objects, return "".
         """
         try:
             # Define built-in types
@@ -442,11 +442,11 @@ class VariableViewer(QMainWindow):
                     if isinstance(rep, VariableRepresentation):
                         return self.format_bytes(rep.nbytes)
 
-            # If not built-in or handled by plugin, return "N/A"
-            return "N/A"
+            # If not built-in or handled by plugin, return ""
+            return ""
         except Exception as e:
             logger.error(f"Error calculating memory usage: {e}")
-            return "N/A"
+            return ""
 
     @staticmethod
     def format_bytes(bytes_size):
@@ -464,7 +464,7 @@ class VariableViewer(QMainWindow):
             return f"{bytes_size:.2f} PB"
         except Exception as e:
             logger.error(f"Error formatting bytes: {e}")
-            return "N/A"
+            return ""
 
     def show_context_menu(self, position):
         """
@@ -585,7 +585,7 @@ class VariableViewer(QMainWindow):
                     elif self.can_expand(value):
                         size_str = self.calculate_size(value)
                     else:
-                        size_str = "N/A"
+                        size_str = ""
                     # Value (prefer plugin's value_summary)
                     formatted_value = (
                         str(representation.value_summary) if representation.value_summary
@@ -604,7 +604,7 @@ class VariableViewer(QMainWindow):
                 self.model.itemFromIndex(item.index().sibling(item.row(), 1)).setText(value_type)
                 self.model.itemFromIndex(item.index().sibling(item.row(), 2)).setText(size_str)
                 self.model.itemFromIndex(item.index().sibling(item.row(), 3)).setText(formatted_value)
-                self.model.itemFromIndex(item.index().sibling(item.row(), 4)).setText(memory_usage if memory_usage else "N/A")
+                self.model.itemFromIndex(item.index().sibling(item.row(), 4)).setText(memory_usage if memory_usage else "")
                 logger.info(f"Updated columns for '{path}'.")
 
                 # Clear existing children
@@ -616,7 +616,7 @@ class VariableViewer(QMainWindow):
                     self.load_children(item, value)
                     logger.info(f"Reloaded children for '{path}'.")
             elif kind == 'pointer':
-                # For pointers or complex objects, display 'N/A' in Memory
+                # For pointers or complex objects, display '' in Memory
                 # Still update Type, Size, and Value
                 # Type
                 value_type = infer_type_hint_general(value)
@@ -625,7 +625,7 @@ class VariableViewer(QMainWindow):
                 # Value
                 formatted_value = self.format_value(value)
                 # Memory usage
-                memory_usage = "N/A"
+                memory_usage = ""
 
                 # Update columns
                 self.model.itemFromIndex(item.index().sibling(item.row(), 1)).setText(value_type)

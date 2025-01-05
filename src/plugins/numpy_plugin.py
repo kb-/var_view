@@ -9,7 +9,10 @@ def numpy_variable_formatter(value: np.ndarray):
     dtype = value.dtype
     sample = value.flatten()[:5].tolist()  # First 5 elements
     return VariableRepresentation(
-        nbytes=value.nbytes, shape=shape, dtype=dtype, value_summary=f"sample={sample}..."
+        nbytes=value.nbytes,
+        shape=shape,
+        dtype=dtype,
+        value_summary=f"sample={sample}... dtype={dtype}"
     )
 
 
