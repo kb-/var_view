@@ -5,6 +5,7 @@ import logging
 import inspect
 import os
 import re
+import sys  # Added import for sys.getsizeof
 
 from PyQt6.QtWidgets import (
     QMainWindow, QTreeView, QVBoxLayout, QWidget, QMenu, QMessageBox,
@@ -150,9 +151,8 @@ class VariableViewer(QMainWindow):
         # Initial load
         self.refresh_view()
 
-        for i in range(self.model.columnCount()):
-            header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
-            header.setMinimumSectionSize(50)  # Adjust as needed
+        # Ensure columns resize after initial load
+        self.resize_all_columns()
 
     @staticmethod
     def load_plugins(plugin_dir=None):
@@ -254,14 +254,14 @@ class VariableViewer(QMainWindow):
                 value_type = infer_type_hint_general(value)
                 size_str = self.calculate_size(value)
                 formatted_value = self.format_value(value)
-                memory_usage = self.calculate_memory_usage(value)
+                memory_usage = self.calculate_memory_usage(value)  # Modified below
 
             # Create QStandardItems for each column
             item_var = QStandardItem(name)
             item_type = QStandardItem(value_type)
             item_size = QStandardItem(size_str)
             item_val = QStandardItem(formatted_value)
-            item_mem = QStandardItem(memory_usage)
+            item_mem = QStandardItem(memory_usage if memory_usage else "N/A")  # Modified here
 
             # read-only columns
             item_var.setEditable(False)
@@ -424,20 +424,26 @@ class VariableViewer(QMainWindow):
 
     def calculate_memory_usage(self, value) -> str:
         """
-        If a plugin handles memory usage (via VariableRepresentation.nbytes), use it.
-        Otherwise, attempt a fallback with sys.getsizeof.
+        Calculate memory usage of a variable.
+        Only display memory for built-in data types and types handled by plugins.
+        For pointers or complex objects, return "N/A".
         """
         try:
+            # Define built-in types
+            built_in_types = (int, float, str, bool)
+
+            if isinstance(value, built_in_types):
+                return self.format_bytes(sys.getsizeof(value))
+
+            # Check if a plugin handles this type
             for data_type, handler in type_handlers.items():
                 if isinstance(value, data_type):
                     rep = handler(value)
                     if isinstance(rep, VariableRepresentation):
                         return self.format_bytes(rep.nbytes)
-            # fallback
-            if hasattr(value, 'nbytes'):
-                return self.format_bytes(value.nbytes)
-            import sys
-            return self.format_bytes(sys.getsizeof(value))
+
+            # If not built-in or handled by plugin, return "N/A"
+            return "N/A"
         except Exception as e:
             logger.error(f"Error calculating memory usage: {e}")
             return "N/A"
@@ -554,50 +560,107 @@ class VariableViewer(QMainWindow):
         try:
             logger.debug(f"Unloading and reloading item '{path}' with value: {value}")
 
-            # check plugin
-            handler = None
-            for data_type, h in type_handlers.items():
-                if isinstance(value, data_type):
-                    handler = h
-                    break
+            # Determine if the object is 'data' or 'pointer'
+            kind, _ = self.calculate_memory_usage_internal(value)
 
-            if handler:
-                rep = handler(value)
-                value_type = infer_type_hint_general(value)
-                if rep.shape:
-                    if isinstance(value, str):
-                        size_str = str(len(value))
+            if kind == 'data':
+                # Check if a plugin handler exists
+                handler = None
+                for data_type in type_handlers:
+                    if isinstance(value, data_type):
+                        handler = type_handlers[data_type]
+                        break
+
+                if handler:
+                    # plugin-based
+                    representation = handler(value)
+                    # Type
+                    value_type = infer_type_hint_general(value)
+                    # Size (try shape from plugin or fallback)
+                    if representation.shape:
+                        if isinstance(value, str):
+                            size_str = str(len(value))
+                        else:
+                            size_str = ", ".join(map(str, representation.shape))
+                    elif self.can_expand(value):
+                        size_str = self.calculate_size(value)
                     else:
-                        size_str = ", ".join(map(str, rep.shape))
-                elif self.can_expand(value):
-                    size_str = self.calculate_size(value)
+                        size_str = "N/A"
+                    # Value (prefer plugin's value_summary)
+                    formatted_value = (
+                        str(representation.value_summary) if representation.value_summary
+                        else self.format_value(value)
+                    )
+                    # Memory usage
+                    memory_usage = self.format_bytes(representation.nbytes)
                 else:
-                    size_str = "N/A"
-                formatted_value = str(rep.value_summary) if rep.value_summary else self.format_value(value)
-                memory_usage = self.format_bytes(rep.nbytes)
-            else:
+                    # no plugin -> fallback
+                    value_type = infer_type_hint_general(value)
+                    size_str = self.calculate_size(value)
+                    formatted_value = self.format_value(value)
+                    memory_usage = self.format_bytes(sys.getsizeof(value))  # Fallback
+
+                # Update columns
+                self.model.itemFromIndex(item.index().sibling(item.row(), 1)).setText(value_type)
+                self.model.itemFromIndex(item.index().sibling(item.row(), 2)).setText(size_str)
+                self.model.itemFromIndex(item.index().sibling(item.row(), 3)).setText(formatted_value)
+                self.model.itemFromIndex(item.index().sibling(item.row(), 4)).setText(memory_usage if memory_usage else "N/A")
+                logger.info(f"Updated columns for '{path}'.")
+
+                # Clear existing children
+                item.removeRow(0, item.rowCount())
+                logger.info(f"Unloaded children for '{path}'.")
+
+                # Reload children
+                if self.can_expand(value):
+                    self.load_children(item, value)
+                    logger.info(f"Reloaded children for '{path}'.")
+            elif kind == 'pointer':
+                # For pointers or complex objects, display 'N/A' in Memory
+                # Still update Type, Size, and Value
+                # Type
                 value_type = infer_type_hint_general(value)
+                # Size
                 size_str = self.calculate_size(value)
+                # Value
                 formatted_value = self.format_value(value)
-                memory_usage = self.calculate_memory_usage(value)
+                # Memory usage
+                memory_usage = "N/A"
 
-            # Update columns
-            self.model.itemFromIndex(item.index().sibling(item.row(), 1)).setText(value_type)
-            self.model.itemFromIndex(item.index().sibling(item.row(), 2)).setText(size_str)
-            self.model.itemFromIndex(item.index().sibling(item.row(), 3)).setText(formatted_value)
-            self.model.itemFromIndex(item.index().sibling(item.row(), 4)).setText(memory_usage)
-            logger.info(f"Updated columns for '{path}'.")
+                # Update columns
+                self.model.itemFromIndex(item.index().sibling(item.row(), 1)).setText(value_type)
+                self.model.itemFromIndex(item.index().sibling(item.row(), 2)).setText(size_str)
+                self.model.itemFromIndex(item.index().sibling(item.row(), 3)).setText(formatted_value)
+                self.model.itemFromIndex(item.index().sibling(item.row(), 4)).setText(memory_usage)
 
-            # Clear existing children
-            item.removeRows(0, item.rowCount())
-            logger.info(f"Unloaded children for '{path}'.")
+                logger.info(f"Updated columns for '{path}'.")
 
-            # Reload children
-            if self.can_expand(value):
-                self.load_children(item, value)
-                logger.info(f"Reloaded children for '{path}'.")
+                # Clear existing children
+                item.removeRow(0, item.rowCount())
+                logger.info(f"Unloaded children for '{path}'.")
+
+                # Reload children
+                if self.can_expand(value):
+                    self.load_children(item, value)
+                    logger.info(f"Reloaded children for '{path}'")
         except Exception as e:
             logger.error(f"Error unloading/reloading '{path}': {e}")
+
+    def calculate_memory_usage_internal(self, value) -> tuple:
+        """
+        Internal method to determine if the object is 'data' or 'pointer'.
+        Returns a tuple ('data' or 'pointer', size_in_bytes).
+        """
+        built_in_types = (int, float, str, bool)
+        if isinstance(value, built_in_types):
+            return ('data', sys.getsizeof(value))
+        for data_type in type_handlers:
+            if isinstance(value, data_type):
+                handler = type_handlers[data_type]
+                rep = handler(value)
+                if isinstance(rep, VariableRepresentation):
+                    return ('data', rep.nbytes)
+        return ('pointer', sys.getsizeof(value))  # Default to pointer
 
     def resolve_variable(self, path):
         """
