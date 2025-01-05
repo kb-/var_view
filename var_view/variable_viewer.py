@@ -20,20 +20,11 @@ from qtconsole.rich_jupyter_widget import RichJupyterWidget
 from qtconsole.inprocess import QtInProcessKernelManager
 
 from var_view.variable_exporter import VariableExporter
+from var_view.plugin_manager import PluginManager  # Import PluginManager
+
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
-
-# Global registry of plugin-based type handlers
-type_handlers = {}
-
-
-def register_type_handler(data_type, handler):
-    """
-    Register a custom handler for a specific data type.
-    Handler should return a VariableRepresentation instance (or string fallback).
-    """
-    type_handlers[data_type] = handler
 
 
 class VariableRepresentation:
@@ -103,17 +94,18 @@ class VariableViewer(QMainWindow):
     """
     A GUI-based viewer that:
       - Displays variables in a tree (with columns: Variable, Type, Size, Value, Memory)
-      - Supports plugins for data-type-specific handling
+      - Supports built_in_plugins for data-type-specific handling
       - Can expand nested objects or lists/dicts (lazy loading)
       - Includes a console integration for interactive usage
     """
-    def __init__(self, data_source, alias="data_source", plugin_dir=None):
+    def __init__(self, data_source, alias="data_source", app_plugin_dir=None):
         super().__init__()
         self.data_source = data_source
         self.exporter = VariableExporter(self)
 
-        # Load plugins from default and/or custom directories
-        self.load_plugins(plugin_dir)
+        # Initialize PluginManager
+        self.plugin_manager = PluginManager()
+        self.load_plugins(app_plugin_dir)
 
         self.initUI(alias)
 
@@ -155,46 +147,23 @@ class VariableViewer(QMainWindow):
         # Ensure columns resize after initial load
         self.resize_all_columns()
 
-    @staticmethod
-    def load_plugins(self, plugin_dirs: Optional[List[str]] = None) -> None:
+    def load_plugins(self, app_plugin_dir):
         """
-        Load plugins from the 'plugins' directory and any additional directories.
-
-        :param plugin_dirs: Optional list of directories containing additional plugins.
+        Load built-in and app-specific plugins.
         """
-        # Import and register internal plugins
+        # Load built-in plugins
         try:
-            import var_view.plugins
-            var_view.plugins.import_plugins(register_type_handler)
+            import var_view.built_in_plugins
+            self.plugin_manager.load_plugins_from_package(var_view.built_in_plugins)
         except Exception as e:
-            logger.error(f"Error loading internal plugins: {e}")
+            logger.error(f"Error loading built-in plugins: {e}")
 
-        # Load external plugins from specified directories (optional)
-        if plugin_dirs:
-            for directory in plugin_dirs:
-                abs_directory = os.path.abspath(directory)
-                if not os.path.exists(abs_directory):
-                    logger.warning(f"External plugin directory '{abs_directory}' does not exist.")
-                    continue
-                for filename in os.listdir(abs_directory):
-                    if filename.endswith(".py") and not filename.startswith("_"):
-                        # Exclude internal modules by ensuring they're not part of 'var_view'
-                        if filename in ["main.py", "variable_exporter.py", "variable_viewer.py"]:
-                            logger.warning(f"Skipping internal module '{filename}' as external plugin.")
-                            continue
-                        plugin_path = os.path.join(abs_directory, filename)
-                        try:
-                            spec = importlib.util.spec_from_file_location("external_plugin", plugin_path)
-                            plugin = importlib.util.module_from_spec(spec)
-                            spec.loader.exec_module(plugin)
-
-                            if hasattr(plugin, "register_handlers"):
-                                plugin.register_handlers(register_type_handler)
-                                logger.info(f"Loaded external plugin: {filename}")
-                            else:
-                                logger.warning(f"External plugin '{filename}' does not have a 'register_handlers' function.")
-                        except Exception as e:
-                            logger.error(f"Failed to load external plugin '{filename}': {e}")
+        # Load app-specific plugins
+        if app_plugin_dir:
+            try:
+                self.plugin_manager.load_plugins_from_directory(app_plugin_dir)
+            except Exception as e:
+                logger.error(f"Error loading app-specific plugins: {e}")
 
     def resize_all_columns(self):
         """Resize all columns to fit their contents."""
@@ -225,14 +194,10 @@ class VariableViewer(QMainWindow):
         """
         try:
             # Check if a plugin handler exists
-            handler = None
-            for data_type in type_handlers:
-                if isinstance(value, data_type):
-                    handler = type_handlers[data_type]
-                    break
+            handler = self.plugin_manager.get_handler_for_type(value)
 
             if handler:
-                # plugin-based
+                # Plugin-based
                 representation = handler(value)
                 # Type
                 value_type = infer_type_hint_general(value)
@@ -254,7 +219,7 @@ class VariableViewer(QMainWindow):
                 # Memory usage
                 memory_usage = self.format_bytes(representation.nbytes)
             else:
-                # no plugin -> fallback
+                # No plugin -> fallback
                 value_type = infer_type_hint_general(value)
                 size_str = self.calculate_size(value)
                 formatted_value = self.format_value(value)
@@ -267,7 +232,7 @@ class VariableViewer(QMainWindow):
             item_val = QStandardItem(formatted_value)
             item_mem = QStandardItem(memory_usage if memory_usage else "")  # Set to "" if N/A
 
-            # read-only columns
+            # Read-only columns
             item_var.setEditable(False)
             item_var.setFlags(item_var.flags() | Qt.ItemFlag.ItemIsDragEnabled)
             item_type.setEditable(False)
@@ -429,7 +394,7 @@ class VariableViewer(QMainWindow):
     def calculate_memory_usage(self, value) -> str:
         """
         Calculate memory usage of a variable.
-        Only display memory for built-in data types and types handled by plugins.
+        Only display memory for built-in data types and types handled by built_in_plugins.
         For pointers or complex objects, return "".
         """
         try:
@@ -440,11 +405,11 @@ class VariableViewer(QMainWindow):
                 return self.format_bytes(sys.getsizeof(value))
 
             # Check if a plugin handles this type
-            for data_type, handler in type_handlers.items():
-                if isinstance(value, data_type):
-                    rep = handler(value)
-                    if isinstance(rep, VariableRepresentation):
-                        return self.format_bytes(rep.nbytes)
+            handler = self.plugin_manager.get_handler_for_type(value)
+            if handler:
+                rep = handler(value)
+                if isinstance(rep, VariableRepresentation):
+                    return self.format_bytes(rep.nbytes)
 
             # If not built-in or handled by plugin, return ""
             return ""
@@ -566,14 +531,10 @@ class VariableViewer(QMainWindow):
             logger.debug(f"Unloading and reloading item '{path}' with value: {value}")
 
             # Check if a plugin handler exists
-            handler = None
-            for data_type in type_handlers:
-                if isinstance(value, data_type):
-                    handler = type_handlers[data_type]
-                    break
+            handler = self.plugin_manager.get_handler_for_type(value)
 
             if handler:
-                # plugin-based
+                # Plugin-based
                 representation = handler(value)
                 # Type
                 value_type = infer_type_hint_general(value)
@@ -595,11 +556,11 @@ class VariableViewer(QMainWindow):
                 # Memory usage
                 memory_usage = self.format_bytes(representation.nbytes)
             else:
-                # no plugin -> fallback
+                # No plugin -> fallback
                 value_type = infer_type_hint_general(value)
                 size_str = self.calculate_size(value)
                 formatted_value = self.format_value(value)
-                memory_usage = self.calculate_memory_usage(value)  # Uses the modified method
+                memory_usage = self.calculate_memory_usage(value)
 
             # Update columns
             self.model.itemFromIndex(item.index().sibling(item.row(), 1)).setText(value_type)

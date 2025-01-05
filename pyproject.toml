@@ -37,9 +37,9 @@ dev = [
 ]
 
 [project.entry-points."var_view.plugins"]
-opencv = "var_view.plugins.opencv_plugin:register_handlers"
-torch = "var_view.plugins.torch_plugin:register_handlers"
-numpy = "var_view.plugins.numpy_plugin:register_handlers"
+opencv = "var_view.built_in_plugins.opencv_plugin:OpenCVPlugin"
+torch = "var_view.built_in_plugins.torch_plugin:TorchPlugin"
+#numpy = "var_view.built_in_plugins.numpy_plugin:NumpyPlugin"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

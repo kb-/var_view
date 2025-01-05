@@ -11,7 +11,7 @@ from var_view import VariableViewer  # Ensure this module is correctly implement
 
 # Configure logging for debugging purposes
 logging.basicConfig(
-    level=logging.WARNING,  # Set to DEBUG to see detailed logs
+    level=logging.DEBUG,  # Set to DEBUG to see detailed logs
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
@@ -96,7 +96,7 @@ def main():
     app = QApplication(sys.argv)
 
     # Instantiate the VariableViewer with the data source
-    viewer = VariableViewer(data_source, "myalias", plugin_dir=["./plugins"])
+    viewer = VariableViewer(data_source, "myalias", "./plugins")
     viewer.add_console("myalias")  # Integrate the console
     viewer.show()
 
