@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QStandardItemModel, QStandardItem, QAction
 from PyQt6.QtCore import Qt, QObject
+from icecream import ic
 
 # Console imports
 from qtconsole.rich_jupyter_widget import RichJupyterWidget
@@ -651,7 +652,7 @@ class VariableViewer(QMainWindow):
                     try:
                         idx = int(part.strip("[]"))
                         value = value[idx]
-                    except:
+                    except Exception:
                         value = None
                 elif isinstance(value, dict):
                     # escape quotes
@@ -706,11 +707,54 @@ class VariableViewer(QMainWindow):
         console_window.resize(600, 960)
         console_window.show()
 
-        self.console_window = console_window  # keep a reference to avoid GC
+        self.console_window = console_window  # Keep a reference to avoid garbage collection
 
         # Inject data_source
-        kernel = kernel_manager.kernel.shell
-        kernel.push({alias: self.data_source})
+        kernel = kernel_manager.kernel  # 'kernel' is the shell
+
+        # Verify if kernel has 'shell' attribute
+        if not hasattr(kernel, 'shell'):
+            logger.error("Kernel does not have a 'shell' attribute.")
+            return
+
+        shell = kernel.shell
+
+        # Verify if shell has 'events' attribute
+        if not hasattr(shell, 'events'):
+            logger.error("Kernel shell does not have an 'events' attribute.")
+            return
+
+        shell.push({alias: self.data_source})
+
+        # Define the event handler
+        def refresh_after_execute(result):
+            """
+            Event handler triggered after a cell is executed.
+
+            Parameters:
+            - result: An ExecutionResult object containing execution details.
+            """
+            try:
+                # Extract the executed cell's source code
+                cell = result.info.raw_cell.strip()
+                logger.debug(f"Executed command: {cell}")
+
+                # Define your condition here. For example:
+                # Refresh if 'refresh_trigger' is in the executed command
+                if "c." in cell:
+                    logger.info(f"Refreshing view triggered by command: {cell}")
+                    self.refresh_view()
+                else:
+                    logger.debug(f"No refresh needed for command: {cell}")
+            except Exception as e:
+                logger.error(f"Error during conditional refresh: {e}")
+
+        # Register the event handler with post_run_cell
+        try:
+            shell.events.register('post_run_cell', refresh_after_execute)
+            logger.info("Registered 'post_run_cell' event handler.")
+        except AttributeError as e:
+            logger.error(f"Failed to register event handler: {e}")
 
         logger.info(f"Console window opened and '{alias}' injected.")
 

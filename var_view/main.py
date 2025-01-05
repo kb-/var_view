@@ -11,7 +11,7 @@ from var_view import VariableViewer  # Ensure this module is correctly implement
 
 # Configure logging for debugging purposes
 logging.basicConfig(
-    level=logging.DEBUG,  # Set to DEBUG to see detailed logs
+    level=logging.INFO,  # Set to DEBUG to see detailed logs
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
@@ -96,8 +96,8 @@ def main():
     app = QApplication(sys.argv)
 
     # Instantiate the VariableViewer with the data source
-    viewer = VariableViewer(data_source, "myalias", "./plugins")
-    viewer.add_console("myalias")  # Integrate the console
+    viewer = VariableViewer(data_source, "c", "./plugins")
+    viewer.add_console("c")  # Integrate the console
     viewer.show()
 
     def update_variables_after_show():
@@ -121,7 +121,7 @@ def main():
     # Set up the timer to trigger every 2 seconds (2000 milliseconds)
     periodic_timer = QTimer()
     periodic_timer.timeout.connect(log_string_var)
-    periodic_timer.start(2000)
+    periodic_timer.start(20000)
 
     # Execute the application
     sys.exit(app.exec())
