@@ -293,10 +293,15 @@ class VariableViewer(QMainWindow):
                 if value is not None and item.hasChildren():
                     first_child = item.child(0, 0)
                     if first_child.text() == "Loading...":
+                        # Remove the placeholder and load children
                         item.removeRow(0)
                         self.load_children(item, value)
                         # After loading children, resize columns to fit new content
                         self.resize_all_columns()
+                else:
+                    logger.warning(f"No children to expand for item: {item.text()}")
+            else:
+                logger.warning("Item not found in model.")
         except Exception as e:
             logger.error(f"Error handling expand: {e}")
 
@@ -325,14 +330,16 @@ class VariableViewer(QMainWindow):
                     if isinstance(key, (str, int, float, bool, tuple)):
                         # Basic types: display key as string
                         display_key = str(key)
-                        key_obj_ref = None
+                        obj_ref = val if self.can_expand(
+                            val) else None  # Reference the value if expandable
                     else:
-                        # Object keys: display with type info and store object reference
+                        # Object keys: display with type info
                         display_key = f"Key: {str(key)}"
-                        key_obj_ref = key  # Store the actual key object
+                        obj_ref = val if self.can_expand(
+                            val) else None  # Reference the value if expandable
 
-                    self.add_variable(display_key, val, parent_item,
-                                      obj_ref=key_obj_ref)
+                    self.add_variable(display_key, val, parent_item, obj_ref=obj_ref)
+
 
             elif isinstance(value, tuple) and hasattr(value, '_fields'):  # named tuple
                 for field in value._fields:
