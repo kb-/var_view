@@ -4,6 +4,7 @@ import logging
 import numpy as np
 import torch
 import cv2
+from collections import namedtuple
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QTimer
 
@@ -11,7 +12,7 @@ from var_view import VariableViewer  # Ensure this module is correctly implement
 
 # Configure logging for debugging purposes
 logging.basicConfig(
-    level=logging.INFO,  # Set to DEBUG to see detailed logs
+    level=logging.DEBUG,  # Set to DEBUG to see detailed logs
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
@@ -83,6 +84,14 @@ class AppDataSource:
         self.test_obj = person_john
         self.list_obj = [person_john, person_john, person_john]
 
+        # Example: Dictionaries with object keys and named tuples
+        CustomKey = namedtuple('CustomKey', ['id', 'description'])
+        self.object_key_dict = {
+            CustomKey(1, "First Key"): "Object Value 1",
+            CustomKey(2, "Second Key"): {"nested": [1, 2, 3]},
+            car_ferrari: "Car as Key",
+        }
+
         # Large tensor (on GPU if available)
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.huge_tensor = torch.rand(10000, 10000).to(device)
@@ -118,7 +127,7 @@ def main():
         """Log the current value of string_var periodically."""
         logging.info(f"Periodic check: string_var = {data_source.string_var}")
 
-    # Set up the timer to trigger every 2 seconds (2000 milliseconds)
+    # Set up the timer to trigger every 2 seconds (20000 milliseconds)
     periodic_timer = QTimer()
     periodic_timer.timeout.connect(log_string_var)
     periodic_timer.start(20000)

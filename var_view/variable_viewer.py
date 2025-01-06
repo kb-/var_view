@@ -188,10 +188,17 @@ class VariableViewer(QMainWindow):
         for name, value in all_vars.items():
             self.add_variable(name, value, self.model.invisibleRootItem())
 
-    def add_variable(self, name, value, parent_item, lazy_load=True):
+    def add_variable(self, name, value, parent_item, lazy_load=True, obj_ref=None):
         """
         Add a single variable as a row in the tree under parent_item.
-        Also handles plugin-based representation.
+        Also handles plugin-based representation and object references.
+
+        Parameters:
+        - name (str): The display name of the variable.
+        - value (Any): The value of the variable.
+        - parent_item (QStandardItem): The parent tree item.
+        - lazy_load (bool): Whether to add a placeholder for lazy loading children.
+        - obj_ref (Any): Reference to the actual object (used for object keys).
         """
         try:
             # Check if a plugin handler exists
@@ -231,8 +238,7 @@ class VariableViewer(QMainWindow):
             item_type = QStandardItem(value_type)
             item_size = QStandardItem(size_str)
             item_val = QStandardItem(formatted_value)
-            item_mem = QStandardItem(
-                memory_usage if memory_usage else "")  # Set to "" if N/A
+            item_mem = QStandardItem(memory_usage if memory_usage else "")
 
             # Read-only columns
             item_var.setEditable(False)
@@ -242,12 +248,18 @@ class VariableViewer(QMainWindow):
             item_val.setEditable(False)
             item_mem.setEditable(False)
 
+            # Store object reference if provided
+            if obj_ref is not None:
+                # Use a custom role to store the object reference
+                item_var.setData(obj_ref, Qt.ItemDataRole.UserRole + 1)
+
             parent_item.appendRow([item_var, item_type, item_size, item_val, item_mem])
 
             # If it can expand, add a placeholder row for lazy loading
             if lazy_load and self.can_expand(value):
                 placeholder = QStandardItem("Loading...")
                 placeholder.setEditable(False)
+                # Add empty items for other columns
                 item_var.appendRow([
                     placeholder, QStandardItem(), QStandardItem(), QStandardItem(),
                     QStandardItem()
@@ -269,16 +281,22 @@ class VariableViewer(QMainWindow):
         try:
             item = self.model.itemFromIndex(index)
             if item:
-                if item.hasChildren():
+                # Retrieve the object reference if it exists
+                obj_ref = item.data(Qt.ItemDataRole.UserRole + 1)
+                if obj_ref is not None:
+                    value = obj_ref  # Use the stored object reference
+                else:
+                    # Resolve the variable path as usual
+                    path = self.resolve_item_path(item)
+                    value = self.resolve_variable(path)
+
+                if value is not None and item.hasChildren():
                     first_child = item.child(0, 0)
                     if first_child.text() == "Loading...":
                         item.removeRow(0)
-                        path = self.resolve_item_path(item)
-                        value = self.resolve_variable(path)
-                        if value is not None:
-                            self.load_children(item, value)
-                            # After loading children, resize columns to fit new content
-                            self.resize_all_columns()
+                        self.load_children(item, value)
+                        # After loading children, resize columns to fit new content
+                        self.resize_all_columns()
         except Exception as e:
             logger.error(f"Error handling expand: {e}")
 
@@ -304,12 +322,22 @@ class VariableViewer(QMainWindow):
                     self.add_variable(f"[{i}]", elem, parent_item)
             elif isinstance(value, dict):
                 for key, val in value.items():
-                    self.add_variable(str(key), val, parent_item)
+                    if isinstance(key, (str, int, float, bool, tuple)):
+                        # Basic types: display key as string
+                        display_key = str(key)
+                        key_obj_ref = None
+                    else:
+                        # Object keys: display with type info and store object reference
+                        display_key = f"Key: {str(key)}"
+                        key_obj_ref = key  # Store the actual key object
+
+                    self.add_variable(display_key, val, parent_item,
+                                      obj_ref=key_obj_ref)
+
             elif isinstance(value, tuple) and hasattr(value, '_fields'):  # named tuple
                 for field in value._fields:
                     attr_val = getattr(value, field)
                     self.add_variable(field, attr_val, parent_item)
-
             # Group 2: Handle Qt objects
             elif isinstance(value, QObject):
                 for attr in dir(value):
@@ -322,13 +350,11 @@ class VariableViewer(QMainWindow):
                             logger.error(f"Error accessing {attr}: {sub_e}")
                             self.add_variable(attr, f"<Error: {sub_e}>", parent_item,
                                               lazy_load=False)
-
             # Group 3: Handle objects with `__dict__`
             elif hasattr(value, '__dict__') and not isinstance(value, QObject):
                 for attr_name, attr_val in vars(value).items():
                     if not attr_name.startswith("_") and not callable(attr_val):
                         self.add_variable(attr_name, attr_val, parent_item)
-
             # Group 4: Handle objects with `__slots__`
             elif hasattr(value, '__slots__'):
                 for slot in value.__slots__:
@@ -337,7 +363,6 @@ class VariableViewer(QMainWindow):
                         self.add_variable(slot, attr_val, parent_item)
                     except AttributeError:
                         logger.debug(f"Slot {slot} not accessible.")
-
             # Group 5: Reflect on objects without `__dict__` or `__slots__`
             else:
                 for attr in dir(value):
@@ -358,9 +383,12 @@ class VariableViewer(QMainWindow):
             logger.error(f"Error loading children: {e}")
 
     def can_expand(self, value):
-        """Check if object can be expanded (dict, list, or has __dict__, but not str/bytes)."""
-        return isinstance(value, (dict, list, QObject)) or (
-                hasattr(value, '__dict__') and not isinstance(value, (str, bytes))
+        """Check if object can be expanded (dict, list, namedtuple, QObject, or has __dict__ or __slots__)."""
+        return (
+                isinstance(value, (dict, list, QObject)) or
+                (isinstance(value, tuple) and hasattr(value, '_fields')) or  # named tuple
+                hasattr(value, '__dict__') or
+                hasattr(value, '__slots__')
         )
 
     def calculate_size(self, value) -> str:
