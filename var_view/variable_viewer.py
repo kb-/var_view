@@ -19,7 +19,6 @@ from qtconsole.inprocess import QtInProcessKernelManager
 from var_view.variable_exporter import VariableExporter
 from var_view.plugin_manager import PluginManager  # Import PluginManager
 
-
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
 
@@ -32,6 +31,7 @@ class VariableRepresentation:
       - dtype: data type
       - value_summary: a short text summarizing the contents or first elements
     """
+
     def __init__(self, nbytes, shape=None, dtype=None, value_summary=None):
         self.nbytes = nbytes
         self.shape = shape
@@ -95,6 +95,7 @@ class VariableViewer(QMainWindow):
       - Can expand nested objects or lists/dicts (lazy loading)
       - Includes a console integration for interactive usage
     """
+
     def __init__(self, data_source, alias="data_source", app_plugin_dir=None):
         super().__init__()
         self.data_source = data_source
@@ -121,7 +122,8 @@ class VariableViewer(QMainWindow):
 
         # Set custom model
         self.model = VariableStandardItemModel(self, alias)
-        self.model.setHorizontalHeaderLabels(["Variable", "Type", "Size", "Value", "Memory"])
+        self.model.setHorizontalHeaderLabels(
+            ["Variable", "Type", "Size", "Value", "Memory"])
         self.tree_view.setModel(self.model)
 
         # Tree properties
@@ -173,12 +175,14 @@ class VariableViewer(QMainWindow):
         from self.data_source.
         """
         self.model.clear()
-        self.model.setHorizontalHeaderLabels(["Variable", "Type", "Size", "Value", "Memory"])
+        self.model.setHorizontalHeaderLabels(
+            ["Variable", "Type", "Size", "Value", "Memory"])
 
         all_vars = {
             name: getattr(self.data_source, name, None)
             for name in dir(self.data_source)
-            if not name.startswith("_") and not callable(getattr(self.data_source, name, None))
+            if not name.startswith("_") and not callable(
+                getattr(self.data_source, name, None))
         }
 
         for name, value in all_vars.items():
@@ -227,7 +231,8 @@ class VariableViewer(QMainWindow):
             item_type = QStandardItem(value_type)
             item_size = QStandardItem(size_str)
             item_val = QStandardItem(formatted_value)
-            item_mem = QStandardItem(memory_usage if memory_usage else "")  # Set to "" if N/A
+            item_mem = QStandardItem(
+                memory_usage if memory_usage else "")  # Set to "" if N/A
 
             # Read-only columns
             item_var.setEditable(False)
@@ -244,7 +249,8 @@ class VariableViewer(QMainWindow):
                 placeholder = QStandardItem("Loading...")
                 placeholder.setEditable(False)
                 item_var.appendRow([
-                    placeholder, QStandardItem(), QStandardItem(), QStandardItem(), QStandardItem()
+                    placeholder, QStandardItem(), QStandardItem(), QStandardItem(),
+                    QStandardItem()
                 ])
         except Exception as e:
             logger.error(f"Error adding variable '{name}': {e}")
@@ -278,55 +284,83 @@ class VariableViewer(QMainWindow):
 
     def load_children(self, parent_item, value, visited=None):
         """
-        Recursively loads child attributes/elements for dictionaries, lists, or objects.
+        Recursively loads child attributes/elements for dictionaries, lists, namedtuples, or objects.
         """
         if visited is None:
             visited = set()
+
         try:
+            # Avoid cyclic references
             if id(value) in visited:
                 logger.debug(f"Cyclic reference for '{parent_item.text()}'.")
-                self.add_variable("<Cyclic Reference>", "<Cyclic Reference>", parent_item, lazy_load=False)
+                self.add_variable("<Cyclic Reference>", "<Cyclic Reference>",
+                                  parent_item, lazy_load=False)
                 return
             visited.add(id(value))
 
+            # Group 1: Handle iterable-like structures
             if isinstance(value, list):
                 for i, elem in enumerate(value):
                     self.add_variable(f"[{i}]", elem, parent_item)
             elif isinstance(value, dict):
                 for key, val in value.items():
                     self.add_variable(str(key), val, parent_item)
-            elif inspect.isclass(value):
-                # skip classes
-                return
+            elif isinstance(value, tuple) and hasattr(value, '_fields'):  # named tuple
+                for field in value._fields:
+                    attr_val = getattr(value, field)
+                    self.add_variable(field, attr_val, parent_item)
+
+            # Group 2: Handle Qt objects
+            elif isinstance(value, QObject):
+                for attr in dir(value):
+                    if not attr.startswith("_"):
+                        try:
+                            attr_val = getattr(value, attr)
+                            if not callable(attr_val):
+                                self.add_variable(attr, attr_val, parent_item)
+                        except Exception as sub_e:
+                            logger.error(f"Error accessing {attr}: {sub_e}")
+                            self.add_variable(attr, f"<Error: {sub_e}>", parent_item,
+                                              lazy_load=False)
+
+            # Group 3: Handle objects with `__dict__`
             elif hasattr(value, '__dict__') and not isinstance(value, QObject):
                 for attr_name, attr_val in vars(value).items():
-                    if attr_name.startswith("_"):
-                        continue
-                    if callable(attr_val):
-                        continue
-                    self.add_variable(attr_name, attr_val, parent_item)
-            elif isinstance(value, QObject):
-                # for Qt objects, reflect on public attributes
-                for attr in dir(value):
-                    if attr.startswith("_"):
-                        continue
+                    if not attr_name.startswith("_") and not callable(attr_val):
+                        self.add_variable(attr_name, attr_val, parent_item)
+
+            # Group 4: Handle objects with `__slots__`
+            elif hasattr(value, '__slots__'):
+                for slot in value.__slots__:
                     try:
-                        attr_val = getattr(value, attr)
-                        if callable(attr_val):
-                            continue
-                        self.add_variable(attr, attr_val, parent_item)
-                    except Exception as sub_e:
-                        logger.error(f"Error accessing {attr}: {sub_e}")
-                        self.add_variable(attr, f"<Error: {sub_e}>", parent_item, lazy_load=False)
-            # After loading children, adjust column sizes
+                        attr_val = getattr(value, slot)
+                        self.add_variable(slot, attr_val, parent_item)
+                    except AttributeError:
+                        logger.debug(f"Slot {slot} not accessible.")
+
+            # Group 5: Reflect on objects without `__dict__` or `__slots__`
+            else:
+                for attr in dir(value):
+                    if not attr.startswith("_"):
+                        try:
+                            attr_val = getattr(value, attr)
+                            if not callable(attr_val):
+                                self.add_variable(attr, attr_val, parent_item)
+                        except Exception as e:
+                            logger.error(f"Error accessing {attr}: {e}")
+                            self.add_variable(attr, f"<Error: {e}>", parent_item,
+                                              lazy_load=False)
+
+            # Adjust column sizes after loading children
             self.resize_all_columns()
+
         except Exception as e:
             logger.error(f"Error loading children: {e}")
 
     def can_expand(self, value):
         """Check if object can be expanded (dict, list, or has __dict__, but not str/bytes)."""
         return isinstance(value, (dict, list, QObject)) or (
-            hasattr(value, '__dict__') and not isinstance(value, (str, bytes))
+                hasattr(value, '__dict__') and not isinstance(value, (str, bytes))
         )
 
     def calculate_size(self, value) -> str:
@@ -374,7 +408,8 @@ class VariableViewer(QMainWindow):
                 val_str = f"[{val_str}] ..." if len(value) > 5 else f"[{val_str}]"
             elif isinstance(value, dict):
                 first_keys = list(value.keys())[:5]
-                val_str = "{" + ", ".join(map(str, first_keys)) + ("}..." if len(value) > 5 else "}")
+                val_str = "{" + ", ".join(map(str, first_keys)) + (
+                    "}..." if len(value) > 5 else "}")
             elif hasattr(value, '__dict__') and not isinstance(value, (str, bytes)):
                 # Show a short placeholder
                 val_str = f"<{type(value).__name__}>"
@@ -449,7 +484,8 @@ class VariableViewer(QMainWindow):
             menu.addAction(export_action)
         else:
             export_sel_action = QAction("Export Selected", self)
-            export_sel_action.triggered.connect(lambda: self.export_selected_variables(indexes))
+            export_sel_action.triggered.connect(
+                lambda: self.export_selected_variables(indexes))
             menu.addAction(export_sel_action)
 
         # Update for root-level
@@ -457,7 +493,8 @@ class VariableViewer(QMainWindow):
             item = self.model.itemFromIndex(idx)
             if item.parent() is None:
                 update_action = QAction("Update", self)
-                update_action.triggered.connect(lambda: self.update_selected_variables(indexes))
+                update_action.triggered.connect(
+                    lambda: self.update_selected_variables(indexes))
                 menu.addAction(update_action)
                 break
 
@@ -501,7 +538,8 @@ class VariableViewer(QMainWindow):
         if vars_to_export:
             self.exporter.export_variables(vars_to_export)
         else:
-            QMessageBox.warning(self, "Export Warning", "No valid variables selected for export.")
+            QMessageBox.warning(self, "Export Warning",
+                                "No valid variables selected for export.")
 
     def update_selected_variables(self, indexes):
         """
@@ -560,10 +598,14 @@ class VariableViewer(QMainWindow):
                 memory_usage = self.calculate_memory_usage(value)
 
             # Update columns
-            self.model.itemFromIndex(item.index().sibling(item.row(), 1)).setText(value_type)
-            self.model.itemFromIndex(item.index().sibling(item.row(), 2)).setText(size_str)
-            self.model.itemFromIndex(item.index().sibling(item.row(), 3)).setText(formatted_value)
-            self.model.itemFromIndex(item.index().sibling(item.row(), 4)).setText(memory_usage if memory_usage else "")
+            self.model.itemFromIndex(item.index().sibling(item.row(), 1)).setText(
+                value_type)
+            self.model.itemFromIndex(item.index().sibling(item.row(), 2)).setText(
+                size_str)
+            self.model.itemFromIndex(item.index().sibling(item.row(), 3)).setText(
+                formatted_value)
+            self.model.itemFromIndex(item.index().sibling(item.row(), 4)).setText(
+                memory_usage if memory_usage else "")
             logger.info(f"Updated columns for '{path}'.")
 
             # Clear existing children
@@ -800,6 +842,7 @@ class VariableStandardItemModel(QStandardItemModel):
     """
     Custom QStandardItemModel that supports dragging the variable path from the tree.
     """
+
     def __init__(self, viewer, alias="data_source", parent=None):
         super().__init__(parent)
         self.viewer = viewer
