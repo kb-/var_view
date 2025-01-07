@@ -7,6 +7,7 @@ To develop:
   Max length parameter
 - Drop files to import
 - Fix drag for object key dicts
+- Variables preview: change ... placement (in array, only if more elements)
 
 To experiment:
 - AI agent plot:  
