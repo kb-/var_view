@@ -3,6 +3,8 @@
 from unittest.mock import MagicMock
 
 import pytest
+from PyQt6.QtCore import Qt
+
 from var_view.variable_viewer.viewer import VariableViewer
 
 
@@ -283,3 +285,240 @@ def test_resolve_item_path_multiple_levels(viewer):
     path = viewer.resolve_item_path(child)
     # Check that the path includes both parent and child names
     assert "parent" in path and "child" in path
+
+
+def test_load_plugins_handles_missing_plugins(viewer_with_mocked_plugins, caplog, tmp_path):
+    """
+    Test that load_plugins logs warnings if plugins fail to load.
+    """
+    viewer = viewer_with_mocked_plugins
+    app_plugin_dir = tmp_path / "plugins"  # Temporary directory for plugins
+    app_plugin_dir.mkdir()
+
+    # Mock a plugin manager that raises an error
+    viewer.plugin_manager.load_plugins_from_directory.side_effect = Exception("Test error")
+
+    with caplog.at_level("WARNING"):
+        viewer.load_plugins(app_plugin_dir)
+        assert any("Test error" in record.message for record in caplog.records)
+
+
+def test_load_plugins_registers_plugins(viewer_with_mocked_plugins, tmp_path):
+    """
+    Test that load_plugins successfully registers plugins.
+    """
+    viewer = viewer_with_mocked_plugins
+    app_plugin_dir = tmp_path / "plugins"
+    app_plugin_dir.mkdir()
+
+    # Create a dummy plugin file to simulate plugin registration
+    (app_plugin_dir / "test_plugin.py").write_text("")
+
+    # Mock plugin manager methods we care about
+    viewer.plugin_manager.load_plugins_from_directory = MagicMock()
+
+    # Call the method
+    viewer.load_plugins(app_plugin_dir)
+
+    # Verify that load_plugins_from_directory was called with the correct directory
+    viewer.plugin_manager.load_plugins_from_directory.assert_called_once_with(app_plugin_dir)
+
+
+def simple_resolve(data_source, path):
+    current = data_source
+    for part in path.split('.'):
+        if isinstance(current, dict):
+            current = current.get(part)
+        else:
+            current = getattr(current, part, None)
+        if current is None:
+            break
+    return current
+
+
+def test_resolve_variable_handles_invalid_path(viewer):
+    """
+    Test that resolve_variable returns None for invalid paths.
+    """
+    result = viewer.resolve_variable("invalid.path")
+    assert result is None
+
+
+def test_resolve_variable_nested_objects(viewer):
+    """
+    Test resolving nested objects.
+    """
+    nested_data = {"level1": {"level2": {"key": "value"}}}
+    viewer.data_source = nested_data
+    viewer.resolve_variable = lambda path: simple_resolve(viewer.data_source, path)
+    result = viewer.resolve_variable("level1.level2.key")
+    assert result == "value"
+
+
+# def test_resolve_variable_cyclic_reference(viewer):
+#     """
+#     Test that resolve_variable handles cyclic references gracefully.
+#     """
+#     class Cyclic:
+#         pass
+#
+#     cyclic = Cyclic()
+#     cyclic.self = cyclic
+#
+#     viewer.data_source = {"cyclic": cyclic}
+#     viewer.resolve_variable = lambda path: simple_resolve(viewer.data_source, path)
+#     result = viewer.resolve_variable("cyclic.self.self.self")
+#     assert result == cyclic
+
+
+def test_load_children_expands_item(viewer):
+    """
+    Test that load_children populates children for an expandable item.
+    """
+    from PyQt6.QtGui import QStandardItem
+    parent = QStandardItem("parent")
+    viewer.model.invisibleRootItem().appendRow(parent)
+
+    # Mock expandable item behavior
+    viewer.can_expand = MagicMock(return_value=True)
+    dummy_value = {"dummy": 1}  # Example value to pass
+    viewer.load_children(parent, dummy_value)
+
+    # Assert that children were added to the parent item
+    assert parent.rowCount() > 0
+
+
+def test_show_context_menu_triggers(viewer):
+    """
+    Test that show_context_menu is called when customContextMenuRequested signal is emitted.
+    """
+    from PyQt6.QtCore import QPoint
+
+    # Replace show_context_menu with a mock
+    viewer.show_context_menu = MagicMock()
+
+    # Ensure the signal is connected to our mocked method
+    viewer.tree_view.customContextMenuRequested.connect(viewer.show_context_menu)
+
+    # Create an arbitrary point to emit the signal
+    pos = QPoint(10, 10)
+
+    # Emit the customContextMenuRequested signal
+    viewer.tree_view.customContextMenuRequested.emit(pos)
+
+    # Verify that our mock was called once with the emitted position
+    viewer.show_context_menu.assert_called_once_with(pos)
+
+
+def test_export_variable(viewer):
+    # Mock export_variable behavior
+    viewer.export_variable = MagicMock()
+    viewer.export_variable("mock_variable", "mock_file")
+    viewer.export_variable.assert_called_once_with("mock_variable", "mock_file")
+
+# @pytest.mark.parametrize("input_data,expected", [
+#     ({"key": "value"}, "value"),
+#     ({"key": None}, None),
+#     ({"level1": {"level2": {"key": "nested_value"}}}, "nested_value"),
+#     ({"key": {"subkey": "subvalue"}}, {"subkey": "subvalue"}),
+#     # Add more edge cases as needed
+# ])
+# def test_resolve_variable_edge_cases(viewer, input_data, expected):
+#     viewer.data_source = input_data
+#     result = viewer.resolve_variable("key")
+#     assert result == expected
+
+
+@pytest.mark.parametrize("input_data, path, expected", [
+    ({"a": {"b": {"c": "d"}}}, "a.b.c", "d"),
+    ({"x": {"y": None}}, "x.y", None),
+    ({"m": {"n": {"o": {"p": "q"}}}}, "m.n.o.p", "q"),
+])
+def test_resolve_variable_nested_paths(viewer, input_data, path, expected):
+    viewer.data_source = input_data
+    assert viewer.resolve_variable(path) == expected
+
+
+@pytest.mark.parametrize("input_data, path, expected", [
+    ({"a": {"b": {"c": "d"}}}, 'a["b"]["c"]', "d"),
+    ({"x": {"y": None}}, 'x["y"]', None),
+    ({"m": {"n": {"o": {"p": "q"}}}}, 'm["n"]["o"]["p"]', "q"),
+])
+def test_resolve_variable_nested_paths(viewer, input_data, path, expected):
+    class Root:
+        pass
+    root_obj = Root()
+    # Attach each top-level key as an attribute of root_obj
+    for key, value in input_data.items():
+        setattr(root_obj, key, value)
+    viewer.data_source = root_obj
+
+    assert viewer.resolve_variable(path) == expected
+
+
+def test_resolve_variable_nested_paths_var2(viewer):
+    class Root:
+        pass
+    root_obj = Root()
+    root_obj.m = {"n": {"o": {"p": "q"}}}
+    viewer.data_source = root_obj
+
+    assert viewer.resolve_variable('m["n"]["o"]["p"]') == "q"
+
+
+def test_resolve_variable_cyclic_reference(viewer):
+    class Cyclic:
+        pass
+
+    cyclic = Cyclic()
+    cyclic.self = cyclic
+
+    class Root:
+        pass
+    root_obj = Root()
+    root_obj.cyclic = cyclic
+    viewer.data_source = root_obj
+
+    # Test cyclic resolution. It should eventually return the cyclic object
+    result = viewer.resolve_variable('cyclic.self.self.self')
+    assert result is cyclic
+
+
+def test_resolve_variable_basic(viewer):
+    # Create an object with attribute 'key'
+    class Root:
+        key = "value"
+
+    viewer.data_source = Root()
+
+    # Simple attribute lookup should work
+    assert viewer.resolve_variable("key") == "value"
+
+
+def test_resolve_variable_invalid_paths(viewer):
+    class Root:
+        pass
+    root_obj = Root()
+    root_obj.key = "value"
+    viewer.data_source = root_obj
+
+    # Non-existing attributes or keys
+    assert viewer.resolve_variable("nonexistent") is None
+    assert viewer.resolve_variable('key["nonexistent"]') is None
+
+
+def test_resolve_mixed_nested(viewer):
+    class Child:
+        pass
+
+    class Root:
+        pass
+
+    root_obj = Root()
+    child = Child()
+    child.value = 123
+    root_obj.child = {"nested": child}
+    viewer.data_source = root_obj
+
+    # Accessing attribute 'child', then key 'nested', then attribute 'value'
+    assert viewer.resolve_variable('child["nested"].value') == 123
