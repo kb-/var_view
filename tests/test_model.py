@@ -1,6 +1,6 @@
 import pytest
 from PyQt6.QtCore import Qt, QModelIndex
-from PyQt6.QtGui import QStandardItem, QStandardItemModel
+from PyQt6.QtGui import QStandardItem
 from var_view.variable_viewer.model import VariableStandardItemModel
 
 # Create a simple dummy viewer to pass to the model.
