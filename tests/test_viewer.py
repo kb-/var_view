@@ -950,3 +950,64 @@ def test_resolve_item_path_invalid(viewer):
 
     # Since the item is not in the model, the path should only include its text
     assert path == "standalone", f"Expected 'standalone', got '{path}'"
+
+
+def test_has_variable_root_level(viewer):
+    """
+    Test that has_variable returns True for a variable that exists at the root level.
+    """
+    from PyQt6.QtGui import QStandardItem
+
+    # Add a root-level variable to the model
+    root = viewer.model.invisibleRootItem()
+    var_item = QStandardItem("root_var")
+    root.appendRow([var_item, QStandardItem(), QStandardItem(), QStandardItem(), QStandardItem()])
+
+    # Assert that has_variable returns True
+    assert viewer.has_variable("root_var") is True
+
+
+def test_has_variable_nested_path(viewer):
+    """
+    Test that has_variable returns True for a nested variable path.
+    """
+    from PyQt6.QtGui import QStandardItem
+
+    # Add a nested variable to the model
+    root = viewer.model.invisibleRootItem()
+    parent_item = QStandardItem("parent_var")
+    child_item = QStandardItem("child_var")
+    root.appendRow([parent_item, QStandardItem(), QStandardItem(), QStandardItem(), QStandardItem()])
+    parent_item.appendRow([child_item, QStandardItem(), QStandardItem(), QStandardItem(), QStandardItem()])
+
+    # Assert that has_variable returns True for the nested path
+    assert viewer.has_variable("parent_var.child_var") is True
+
+
+def test_has_variable_nonexistent(viewer):
+    """
+    Test that has_variable returns False for a variable that does not exist.
+    """
+    assert viewer.has_variable("nonexistent_var") is False
+
+
+def test_has_variable_partial_match(viewer):
+    """
+    Test that has_variable returns False if only part of the path exists.
+    """
+    from PyQt6.QtGui import QStandardItem
+
+    # Add a parent variable to the model
+    root = viewer.model.invisibleRootItem()
+    parent_item = QStandardItem("parent_var")
+    root.appendRow([parent_item, QStandardItem(), QStandardItem(), QStandardItem(), QStandardItem()])
+
+    # Assert that has_variable returns False for a non-existent child
+    assert viewer.has_variable("parent_var.child_var") is False
+
+
+def test_has_variable_empty_path(viewer):
+    """
+    Test that has_variable returns False for an empty path.
+    """
+    assert viewer.has_variable("") is False
