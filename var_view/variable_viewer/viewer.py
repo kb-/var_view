@@ -13,9 +13,10 @@ from PyQt6.QtCore import Qt, QObject
 
 from var_view.variable_exporter import VariableExporter
 from var_view.plugin_manager import PluginManager  # Import PluginManager
-from variable_viewer.console import ConsoleManager
-from variable_viewer.model import VariableStandardItemModel
-from variable_viewer.utils import infer_type_hint_general, format_bytes
+from var_view.variable_viewer.console import ConsoleManager
+from var_view.variable_viewer.model import VariableStandardItemModel
+from var_view.variable_viewer.utils import infer_type_hint_general, format_bytes, \
+    VariableRepresentation
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
