@@ -8,7 +8,7 @@ from collections import namedtuple
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QTimer
 
-from var_view import VariableViewer  # Ensure this module is correctly implemented
+from var_view.variable_viewer import VariableViewer
 
 # Configure logging for debugging purposes
 logging.basicConfig(
@@ -105,7 +105,7 @@ def main():
     app = QApplication(sys.argv)
 
     # Instantiate the VariableViewer with the data source
-    viewer = VariableViewer(data_source, "c", "./plugins")
+    viewer = VariableViewer(data_source, "c", "var_view/plugins")
     viewer.add_console("c")  # Integrate the console
     viewer.show()
 

@@ -1,7 +1,6 @@
-# var_view/variable_viewer.py
+# var_view/variable_viewer/viewer.py
 
 import logging
-import inspect
 import re
 import sys  # Added import for sys.getsizeof
 
@@ -9,83 +8,17 @@ from PyQt6.QtWidgets import (
     QMainWindow, QTreeView, QVBoxLayout, QWidget, QMenu, QMessageBox,
     QHeaderView, QApplication
 )
-from PyQt6.QtGui import QStandardItemModel, QStandardItem, QAction
+from PyQt6.QtGui import QAction, QStandardItem
 from PyQt6.QtCore import Qt, QObject
-
-# Console imports
-from qtconsole.rich_jupyter_widget import RichJupyterWidget
-from qtconsole.inprocess import QtInProcessKernelManager
 
 from var_view.variable_exporter import VariableExporter
 from var_view.plugin_manager import PluginManager  # Import PluginManager
+from variable_viewer.console import ConsoleManager
+from variable_viewer.model import VariableStandardItemModel
+from variable_viewer.utils import infer_type_hint_general, format_bytes
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
-
-
-class VariableRepresentation:
-    """
-    Encapsulates metadata about a variable that a plugin might provide:
-      - nbytes: memory usage
-      - shape: shape of array-like data
-      - dtype: data type
-      - value_summary: a short text summarizing the contents or first elements
-    """
-
-    def __init__(self, nbytes, shape=None, dtype=None, value_summary=None):
-        self.nbytes = nbytes
-        self.shape = shape
-        self.dtype = dtype
-        self.value_summary = value_summary  # e.g. "sample=[1,2,3]..."
-
-    def __str__(self):
-        """
-        Default text representation combining shape, dtype, and value summary.
-        """
-        parts = []
-        if self.shape:
-            parts.append(f"shape={self.shape}")
-        if self.dtype:
-            parts.append(f"dtype={self.dtype}")
-        if self.value_summary:
-            parts.append(str(self.value_summary))
-        return ", ".join(parts) if parts else "N/A"
-
-
-def infer_type_hint_general(data) -> str:
-    """
-    Dynamically infers a type hint for the given input data.
-    Handles first-level types for nested structures, dicts, lists, sets, etc.
-    For example: dict[str, int|dict], list[int|float], etc.
-    """
-    from collections.abc import Iterable
-
-    if isinstance(data, dict):
-        # Empty dict
-        if len(data) == 0:
-            return "dict"
-        key_types = {type(k).__name__ for k in data.keys()}
-        value_types = {type(v).__name__ for v in data.values()}
-        combined_keys = " | ".join(sorted(key_types))
-        combined_values = " | ".join(sorted(value_types))
-        return f"dict[{combined_keys}, {combined_values}]"
-
-    elif isinstance(data, Iterable) and not isinstance(data, (str, bytes)):
-        try:
-            if len(data) == 0:
-                return type(data).__name__  # e.g. "list"
-        except TypeError:
-            # Some iterables don't support len()
-            pass
-        # For a list/tuple/set, gather the unique first-level element types
-        element_types = {type(element).__name__ for element in data}
-        combined_type = " | ".join(sorted(element_types))
-        return f"{type(data).__name__}[{combined_type}]"
-
-    else:
-        # For a non-iterable or str/bytes, just return the type name
-        return type(data).__name__
-
 
 class VariableViewer(QMainWindow):
     """
@@ -225,7 +158,7 @@ class VariableViewer(QMainWindow):
                     else self.format_value(value)
                 )
                 # Memory usage
-                memory_usage = self.format_bytes(representation.nbytes)
+                memory_usage = format_bytes(representation.nbytes)
             else:
                 # No plugin -> fallback
                 value_type = infer_type_hint_general(value)
@@ -469,37 +402,19 @@ class VariableViewer(QMainWindow):
             built_in_types = (int, float, str, bool)
 
             if isinstance(value, built_in_types):
-                return self.format_bytes(sys.getsizeof(value))
+                return format_bytes(sys.getsizeof(value))
 
             # Check if a plugin handles this type
             handler = self.plugin_manager.get_handler_for_type(value)
             if handler:
                 rep = handler(value)
                 if isinstance(rep, VariableRepresentation):
-                    return self.format_bytes(rep.nbytes)
+                    return format_bytes(rep.nbytes)
 
             # If not built-in or handled by plugin, return ""
             return ""
         except Exception as e:
             logger.error(f"Error calculating memory usage: {e}")
-            return ""
-
-    @staticmethod
-    def format_bytes(bytes_size):
-        """
-        Convert bytes to human-readable string.
-        """
-        try:
-            units = ["B", "KB", "MB", "GB", "TB"]
-            for u in units:
-                if bytes_size < 1024:
-                    if u == "B":
-                        return f"{bytes_size} B"
-                    return f"{bytes_size:.2f} {u}"
-                bytes_size /= 1024
-            return f"{bytes_size:.2f} PB"
-        except Exception as e:
-            logger.error(f"Error formatting bytes: {e}")
             return ""
 
     def show_context_menu(self, position):
@@ -624,7 +539,7 @@ class VariableViewer(QMainWindow):
                     else self.format_value(value)
                 )
                 # Memory usage
-                memory_usage = self.format_bytes(representation.nbytes)
+                memory_usage = format_bytes(representation.nbytes)
             else:
                 # No plugin -> fallback
                 value_type = infer_type_hint_general(value)
@@ -787,125 +702,5 @@ class VariableViewer(QMainWindow):
         """
         Opens an IPython/Qt console in a separate window, injecting self.data_source under the given alias.
         """
-        kernel_manager = QtInProcessKernelManager()
-        kernel_manager.start_kernel()
-        kernel_manager.kernel.gui = "qt"
-
-        kernel_client = kernel_manager.client()
-        kernel_client.start_channels()
-
-        console = RichJupyterWidget()
-        console.kernel_manager = kernel_manager
-        console.kernel_client = kernel_client
-
-        console_window = QWidget()
-        console_window.setWindowTitle("Console")
-        layout = QVBoxLayout(console_window)
-        layout.addWidget(console)
-        console_window.resize(600, 960)
-        console_window.show()
-
-        self.console_window = console_window  # Keep a reference to avoid garbage collection
-
-        # Inject data_source
-        kernel = kernel_manager.kernel  # 'kernel' is the shell
-
-        # Verify if kernel has 'shell' attribute
-        if not hasattr(kernel, 'shell'):
-            logger.error("Kernel does not have a 'shell' attribute.")
-            return
-
-        shell = kernel.shell
-
-        # Verify if shell has 'events' attribute
-        if not hasattr(shell, 'events'):
-            logger.error("Kernel shell does not have an 'events' attribute.")
-            return
-
-        shell.push({alias: self.data_source})
-
-        # Define the event handler
-        def refresh_after_execute(result):
-            """
-            Event handler triggered after a cell is executed.
-
-            Parameters:
-            - result: An ExecutionResult object containing execution details.
-            """
-            try:
-                # Extract the executed cell's source code
-                cell = result.info.raw_cell.strip()
-                logger.debug(f"Executed command: {cell}")
-
-                # Check if the command starts with f"{alias}."
-                if cell.startswith(f"{alias}."):
-                    # Extract the parameter being accessed or assigned
-                    # This regex captures the part after the alias and before any space or operator
-                    param_match = re.match(
-                        rf"{re.escape(alias)}\.([A-Za-z_][A-Za-z0-9_]*)", cell)
-                    if param_match:
-                        param_name = param_match.group(1)
-                        full_param_name = f"{param_name}"
-
-                        # Check if the parameter already exists in the viewer
-                        if self.has_variable(full_param_name):
-                            logger.debug(
-                                f"Parameter '{full_param_name}' already exists. No refresh needed.")
-                        else:
-                            logger.info(
-                                f"Parameter '{full_param_name}' does not exist. Refreshing view.")
-                            self.refresh_view()
-                            self.resize_all_columns()
-                    else:
-                        logger.debug(f"Could not parse parameter from command: {cell}")
-                else:
-                    logger.debug(f"Command does not start with '{alias}.': {cell}")
-            except Exception as e:
-                logger.error(f"Error during conditional refresh: {e}")
-
-        # Register the event handler with post_run_cell
-        try:
-            shell.events.register('post_run_cell', refresh_after_execute)
-            logger.info("Registered 'post_run_cell' event handler.")
-        except AttributeError as e:
-            logger.error(f"Failed to register event handler: {e}")
-
-        logger.info(f"Console window opened and '{alias}' injected.")
-
-
-class VariableStandardItemModel(QStandardItemModel):
-    """
-    Custom QStandardItemModel that supports dragging the variable path from the tree.
-    """
-
-    def __init__(self, viewer, alias="data_source", parent=None):
-        super().__init__(parent)
-        self.viewer = viewer
-        self.alias = alias
-
-    def supportedDragActions(self):
-        return Qt.DropAction.CopyAction
-
-    def mimeData(self, indexes):
-        mime_data = super().mimeData(indexes)
-        paths = []
-        for idx in indexes:
-            if idx.column() != 0:
-                continue
-            item = self.itemFromIndex(idx)
-            if item:
-                path = self.viewer.resolve_item_path(item)
-                if path and not path.startswith(self.alias):
-                    path = f"{self.alias}.{path}"
-                paths.append(path)
-        if paths:
-            mime_data.setText("\n".join(paths))
-            logger.debug(f"Dragging variable paths: {paths}")
-        return mime_data
-
-    def flags(self, index):
-        if not index.isValid():
-            return Qt.ItemFlag.NoItemFlags
-        if index.column() == 0:
-            return super().flags(index) | Qt.ItemFlag.ItemIsDragEnabled
-        return super().flags(index)
+        # Initialize ConsoleManager with a callback to refresh the view
+        self.console_manager = ConsoleManager(self.data_source, alias, self)
