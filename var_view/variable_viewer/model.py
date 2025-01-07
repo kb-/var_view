@@ -40,6 +40,4 @@ class VariableStandardItemModel(QStandardItemModel):
     def flags(self, index):
         if not index.isValid():
             return Qt.ItemFlag.NoItemFlags
-        if index.column() == 0:
-            return super().flags(index) | Qt.ItemFlag.ItemIsDragEnabled
-        return super().flags(index)
+        return super().flags(index) | Qt.ItemFlag.ItemIsDragEnabled
