@@ -1,9 +1,11 @@
 # tests/test_viewer.py
-
+from collections import namedtuple
 from unittest.mock import MagicMock
 
 import pytest
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QObject
+from PyQt6.QtGui import QStandardItem
+from PyQt6.QtWidgets import QMenu
 
 from var_view.variable_viewer.viewer import VariableViewer
 
@@ -522,3 +524,253 @@ def test_resolve_mixed_nested(viewer):
 
     # Accessing attribute 'child', then key 'nested', then attribute 'value'
     assert viewer.resolve_variable('child["nested"].value') == 123
+
+
+def test_load_children_handles_dict(viewer):
+    parent_item = QStandardItem("parent")
+    sample_dict = {"key1": 1, "key2": 2}
+    initial_rows = parent_item.rowCount()
+
+    viewer.load_children(parent_item, sample_dict)
+
+    # Check that children were added for each key in the dictionary
+    assert parent_item.rowCount() > initial_rows
+
+
+def test_load_children_handles_namedtuple(viewer):
+    parent_item = QStandardItem("parent")
+    DummyTuple = namedtuple("DummyTuple", ["field1", "field2"])
+    value = DummyTuple(field1=123, field2=456)
+    initial_rows = parent_item.rowCount()
+
+    viewer.load_children(parent_item, value)
+
+    # Check that children were added for each field in the namedtuple
+    assert parent_item.rowCount() > initial_rows
+
+
+def test_load_children_handles_qobject(viewer):
+    class DummyQObject(QObject):
+        def __init__(self):
+            super().__init__()
+            self.attribute = "test"
+
+    parent_item = QStandardItem("parent")
+    value = DummyQObject()
+    initial_rows = parent_item.rowCount()
+
+    viewer.load_children(parent_item, value)
+
+    # Verify children added for non-callable attributes of QObject
+    assert parent_item.rowCount() > initial_rows
+
+
+def test_load_children_handles_dict_object(viewer):
+    class Dummy:
+        pass
+
+    obj = Dummy()
+    obj.attr1 = "value1"
+    obj.attr2 = 42
+
+    parent_item = QStandardItem("parent")
+    initial_rows = parent_item.rowCount()
+
+    viewer.load_children(parent_item, obj)
+
+    # Verify children added for each non-private attribute
+    assert parent_item.rowCount() > initial_rows
+
+
+def test_load_children_handles_slots(viewer):
+    class DummyWithSlots:
+        __slots__ = ['slot1', 'slot2']
+
+        def __init__(self):
+            self.slot1 = "value1"
+            self.slot2 = 2
+
+    parent_item = QStandardItem("parent")
+    value = DummyWithSlots()
+    initial_rows = parent_item.rowCount()
+
+    viewer.load_children(parent_item, value)
+
+    # Verify children added for each slot
+    assert parent_item.rowCount() > initial_rows
+
+
+def test_load_children_handles_else(viewer):
+    class Dummy:
+        def __init__(self):
+            self.a = 1
+
+        def method(self):
+            pass
+
+    parent_item = QStandardItem("parent")
+    value = Dummy()
+    initial_rows = parent_item.rowCount()
+
+    viewer.load_children(parent_item, value)
+
+    # Verify children added for non-callable attributes found in dir(value)
+    assert parent_item.rowCount() > initial_rows
+
+
+def test_load_children_handles_else_branch(viewer):
+    from PyQt6.QtGui import QStandardItem
+
+    # Create a parent item in the model
+    parent_item = QStandardItem("parent")
+    viewer.model.invisibleRootItem().appendRow(parent_item)
+
+    # Use a built-in type (integer) that doesn't have __dict__ or __slots__
+    value = 42
+
+    # Record initial row count
+    initial_count = parent_item.rowCount()
+
+    # Call load_children with the integer value
+    viewer.load_children(parent_item, value)
+
+    # Since 42 has no non-callable attributes without underscores,
+    # the method should run without error and not necessarily add children.
+    # We check that the row count has not decreased.
+    assert parent_item.rowCount() >= initial_count
+
+
+def test_show_context_menu_construction(viewer, monkeypatch):
+    from PyQt6.QtWidgets import QMenu
+    from PyQt6.QtCore import QPoint
+    from PyQt6.QtGui import QStandardItem
+
+    # Create a QStandardItem and append it to the model to simulate selection
+    item = QStandardItem("var_int")
+    empty_item = QStandardItem()
+    viewer.model.invisibleRootItem().appendRow([item, empty_item, empty_item, empty_item, empty_item])
+    valid_index = viewer.model.indexFromItem(item)
+
+    # Create a FakeQMenu to capture actions
+    class FakeQMenu(QMenu):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.actions_added = []
+
+        def addAction(self, action):
+            self.actions_added.append(action)
+            return super().addAction(action)
+
+        def exec(self, _):
+            # Override exec to do nothing
+            return
+
+    fake_menu_instance = FakeQMenu()
+
+    # Monkeypatch QMenu to always return our fake instance
+    monkeypatch.setattr('var_view.variable_viewer.viewer.QMenu', lambda *args, **kwargs: fake_menu_instance)
+
+    # Simulate that there is at least one selected index using the valid index
+    monkeypatch.setattr(viewer.tree_view, 'selectedIndexes', lambda: [valid_index])
+
+    # Emit a fake signal position (the actual value is not important for this test)
+    pos = QPoint(10, 10)
+
+    # Call the method under test
+    viewer.show_context_menu(pos)
+
+    # Extract texts from the actions added to the fake menu
+    action_texts = [action.text() for action in fake_menu_instance.actions_added]
+
+    # Verify that expected actions were added to the menu
+    assert any(text in action_texts for text in ["Export", "Export Selected"])
+    assert any(text in action_texts for text in ["Update", "Copy Path"])
+
+
+
+def test_export_variable_success(viewer, monkeypatch):
+    from PyQt6.QtWidgets import QMessageBox
+    # Setup a fake exporter
+    fake_exporter = MagicMock()
+    viewer.exporter = fake_exporter
+
+    # Create a dummy item and index in the model
+    from PyQt6.QtGui import QStandardItem
+    item = QStandardItem("var_test")
+    viewer.model.invisibleRootItem().appendRow(
+        [item, QStandardItem(), QStandardItem(), QStandardItem(), QStandardItem()]
+    )
+    index = viewer.model.indexFromItem(item)
+
+    # Override resolve_variable to return a non-None value
+    viewer.resolve_variable = lambda path: 123
+
+    # Call export_variable
+    viewer.export_variable(index)
+
+    fake_exporter.export_variable.assert_called_once_with("var_test", 123)
+
+
+def test_export_variable_failure(viewer, monkeypatch):
+    from PyQt6.QtWidgets import QMessageBox
+    # Setup a fake exporter
+    fake_exporter = MagicMock()
+    viewer.exporter = fake_exporter
+
+    # Create a dummy item and index in the model
+    from PyQt6.QtGui import QStandardItem
+    item = QStandardItem("var_test")
+    viewer.model.invisibleRootItem().appendRow(
+        [item, QStandardItem(), QStandardItem(), QStandardItem(), QStandardItem()]
+    )
+    index = viewer.model.indexFromItem(item)
+
+    # Override resolve_variable to return None
+    viewer.resolve_variable = lambda path: None
+
+    # Capture warnings instead of showing QMessageBox
+    messages = []
+    monkeypatch.setattr(QMessageBox, 'warning', lambda parent, title, text: messages.append(text))
+
+    viewer.export_variable(index)
+
+    # Check that a warning was shown
+    assert any("could not be resolved" in msg for msg in messages)
+
+
+def test_export_selected_variables_no_valid(viewer, monkeypatch):
+    from PyQt6.QtWidgets import QMessageBox
+    # Setup a fake exporter
+    fake_exporter = MagicMock()
+    viewer.exporter = fake_exporter
+
+    # Create dummy indexes that don't correspond to valid variables
+    fake_index = MagicMock()
+    monkeypatch.setattr(viewer.model, 'itemFromIndex', lambda idx: None)
+
+    # Capture warnings
+    messages = []
+    monkeypatch.setattr(QMessageBox, 'warning', lambda parent, title, text: messages.append(text))
+
+    viewer.export_selected_variables([fake_index])
+    assert any("No valid variables selected" in msg for msg in messages)
+
+
+def test_update_selected_variables_handles_unavailable(viewer, caplog):
+    # Simulate an index for a non-existing variable
+    fake_index = MagicMock()
+    fake_item = MagicMock()
+    fake_item.parent.return_value = None
+    fake_item.text.return_value = "nonexistent"
+    fake_index.column.return_value = 0
+    fake_index.row.return_value = 0
+    viewer.model.itemFromIndex = lambda idx: fake_item
+
+    viewer.resolve_item_path = lambda item: "nonexistent"
+    viewer.resolve_variable = lambda path: None
+
+    with caplog.at_level("WARNING"):
+        viewer.update_selected_variables([fake_index])
+        assert any("Variable 'nonexistent' is unavailable" in record.message for record in caplog.records)
+
+
