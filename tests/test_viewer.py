@@ -187,3 +187,99 @@ def test_copy_variable_path(viewer, monkeypatch):
 
     # Verify that setText was called on the mocked clipboard
     mock_clipboard.setText.assert_called_once()
+
+
+def test_add_variable_with_plugin(viewer):
+    from PyQt6.QtGui import QStandardItem
+    from var_view.variable_viewer.utils import VariableRepresentation
+
+    # Create a dummy plugin handler that returns a specific representation
+    def dummy_handler(value):
+        return VariableRepresentation(nbytes=2048, shape=(10, 10), dtype="float", value_summary="summary")
+
+    # Mock plugin_manager and get_handler_for_type
+    viewer.plugin_manager = MagicMock()
+    viewer.plugin_manager.get_handler_for_type.return_value = dummy_handler
+
+    parent_item = viewer.model.invisibleRootItem()
+    viewer.add_variable("dummy_var", [1, 2, 3], parent_item)
+
+    # Verify that the variable was added to the model correctly
+    item = parent_item.child(parent_item.rowCount() - 1, 0)  # Last added item
+    assert item.text() == "dummy_var"
+
+
+
+def test_add_variable_handles_exception(viewer, caplog):
+    from PyQt6.QtGui import QStandardItem
+
+    # Force an exception by making a plugin handler raise an exception
+    def faulty_handler(value):
+        raise ValueError("Test exception")
+
+    # Mock plugin_manager and get_handler_for_type
+    viewer.plugin_manager = MagicMock()
+    viewer.plugin_manager.get_handler_for_type.return_value = faulty_handler
+
+    parent_item = viewer.model.invisibleRootItem()
+
+    with caplog.at_level("ERROR"):
+        viewer.add_variable("error_var", "some_value", parent_item)
+
+    # Check that an error was logged
+    assert any("Error adding variable 'error_var'" in record.message for record in caplog.records)
+
+    # Verify that an error entry was added to the model
+    last_row = parent_item.rowCount() - 1
+    type_item = parent_item.child(last_row, 1)
+    assert type_item.text() == "Error"
+
+
+
+def test_handle_expand_and_load_children(viewer):
+    from PyQt6.QtGui import QStandardItem
+
+    # Prepare a dummy nested structure in data_source
+    viewer.data_source = type("DummySource", (), {"child": [1, 2]})()
+    root_item = viewer.model.invisibleRootItem()
+    # Add a placeholder item to simulate expandable child
+    parent_item = QStandardItem("child")
+    root_item.appendRow([parent_item, QStandardItem(), QStandardItem(), QStandardItem(), QStandardItem()])
+    # Add placeholder for lazy loading as expected by handle_expand
+    placeholder = QStandardItem("Loading...")
+    parent_item.appendRow([placeholder, QStandardItem(), QStandardItem(), QStandardItem(), QStandardItem()])
+
+    # Simulate expanding the item
+    index = viewer.model.indexFromItem(parent_item)
+    viewer.handle_expand(index)
+
+    # After expansion, there should be more children loaded, not just the placeholder
+    assert parent_item.rowCount() > 0
+    # Check that the placeholder is removed
+    assert parent_item.child(0, 0).text() != "Loading..."
+
+
+def test_resolve_variable_complex(viewer):
+    # Define a nested data structure to test resolution
+    class Child:
+        value = 123
+    class Parent:
+        child = Child()
+    viewer.data_source = Parent()
+
+    path = "child.value"  # This is a simplified path; adapt based on resolve_variable's parsing logic
+    result = viewer.resolve_variable(path)
+    assert result == 123
+
+
+def test_resolve_item_path_multiple_levels(viewer):
+    from PyQt6.QtGui import QStandardItem
+    root = viewer.model.invisibleRootItem()
+    parent = QStandardItem("parent")
+    child = QStandardItem("child")
+    root.appendRow([parent, QStandardItem(), QStandardItem(), QStandardItem(), QStandardItem()])
+    parent.appendRow([child, QStandardItem(), QStandardItem(), QStandardItem(), QStandardItem()])
+
+    path = viewer.resolve_item_path(child)
+    # Check that the path includes both parent and child names
+    assert "parent" in path and "child" in path
