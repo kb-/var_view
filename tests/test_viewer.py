@@ -774,3 +774,179 @@ def test_update_selected_variables_handles_unavailable(viewer, caplog):
         assert any("Variable 'nonexistent' is unavailable" in record.message for record in caplog.records)
 
 
+def test_unload_and_reload_item_plugin_branch(viewer, monkeypatch):
+    from PyQt6.QtGui import QStandardItem
+    from unittest.mock import MagicMock
+
+    # 1) Create a QStandardItem as "item"
+    item = QStandardItem("test_item")
+
+    # 2) Make an index mock that returns row=0, column=0
+    index_mock = MagicMock()
+    index_mock.row.return_value = 0
+    index_mock.column.return_value = 0
+    # Make sibling(...) calls for columns 1..4 return new mocks
+    sibling_mocks = {}
+    def sibling(row, col):
+        # Return a separate MagicMock for each col
+        subindex = MagicMock()
+        subindex.column.return_value = col
+        subindex.row.return_value = row
+        return subindex
+    index_mock.sibling.side_effect = sibling
+
+    item.index = MagicMock(return_value=index_mock)
+
+    # 3) For each col (1..4), we want itemFromIndex(...) to return a QStandardItem mock
+    siblings = [MagicMock(spec=QStandardItem) for _ in range(5)]  # columns 0..4
+    def fake_itemFromIndex(idx):
+        return siblings[idx.column()]
+
+    monkeypatch.setattr(viewer.model, "itemFromIndex", fake_itemFromIndex)
+
+    # 4) Setup plugin manager mock
+    viewer.plugin_manager = MagicMock()
+    class DummyRepresentation:
+        shape = (10,10)
+        value_summary = "summary"
+        nbytes = 2048
+    viewer.plugin_manager.get_handler_for_type.return_value = lambda v: DummyRepresentation()
+
+    # 5) Call the method
+    viewer.unload_and_reload_item(item, "dummy_value", "dummy_path")
+
+    # 6) Check that each sibling's setText was called with a non-empty string
+    for i, sib in enumerate(siblings[1:], start=1):
+        # The code sets column 1 to 'value_type', col 2 to 'size_str', etc.
+        sib.setText.assert_called()  # or use .assert_called_once()
+        # optionally, check call args if you want to confirm it's not empty
+        call_args = sib.setText.call_args[0][0]
+        assert call_args != "", f"Column {i} text unexpectedly empty."
+
+
+def test_unload_and_reload_item_no_plugin(viewer, monkeypatch):
+    from PyQt6.QtGui import QStandardItem
+    from PyQt6.QtCore import QModelIndex
+    from unittest.mock import MagicMock
+
+    # Create a dummy QStandardItem as the item to update
+    item = MagicMock(spec=QStandardItem)
+
+    # Mock `item.index()` to return a dummy QModelIndex
+    class FakeIndex(QModelIndex):
+        def __init__(self, column=0):
+            self._column = column
+
+        def column(self):
+            return self._column
+
+        def sibling(self, row, column):
+            return FakeIndex(column=column)
+
+    item.index.return_value = FakeIndex()
+
+    # Create dummy sibling items for each column (5 columns total)
+    siblings = [MagicMock(spec=QStandardItem) for _ in range(5)]
+
+    # Mock `itemFromIndex` to return sibling items based on the column
+    def fake_itemFromIndex(idx):
+        if isinstance(idx, FakeIndex):
+            return siblings[idx.column()]
+        return None
+
+    monkeypatch.setattr(viewer.model, "itemFromIndex", fake_itemFromIndex)
+
+    # Configure plugin manager to simulate no plugin
+    viewer.plugin_manager = MagicMock()
+    viewer.plugin_manager.get_handler_for_type = MagicMock(return_value=None)
+
+    # Override methods to prevent UI dependencies
+    viewer.can_expand = lambda v: False  # Avoid reloading children
+    viewer.calculate_size = lambda v: "size"
+    viewer.format_value = lambda v: "formatted"
+    viewer.calculate_memory_usage = lambda v: "mem_usage"
+
+    # Call `unload_and_reload_item` with dummy parameters
+    viewer.unload_and_reload_item(item, "dummy_value", "dummy_path")
+
+    # Update expected values: column 1 -> value_type ("str"), col2 -> "size", col3 -> "formatted", col4 -> "mem_usage"
+    expected_values = ["str", "size", "formatted", "mem_usage"]
+
+    # Assert `setText` was called with correct values for columns 1..4 (skipping column 0)
+    for sibling, expected in zip(siblings[1:], expected_values):
+        sibling.setText.assert_called_once_with(expected)
+
+
+def test_resolve_item_path(viewer):
+    from PyQt6.QtGui import QStandardItem
+
+    # Create a nested structure in the model
+    root = viewer.model.invisibleRootItem()
+    parent_item = QStandardItem("parent")
+    child_item = QStandardItem("child")
+    grandchild_item = QStandardItem("grandchild")
+
+    # Build the hierarchy
+    root.appendRow([parent_item, QStandardItem(), QStandardItem(), QStandardItem(), QStandardItem()])
+    parent_item.appendRow([child_item, QStandardItem(), QStandardItem(), QStandardItem(), QStandardItem()])
+    child_item.appendRow([grandchild_item, QStandardItem(), QStandardItem(), QStandardItem(), QStandardItem()])
+
+    # Test paths
+    parent_path = viewer.resolve_item_path(parent_item)
+    assert parent_path == "parent", f"Expected 'parent', got '{parent_path}'"
+
+    child_path = viewer.resolve_item_path(child_item)
+    assert child_path == "parent.child", f"Expected 'parent.child', got '{child_path}'"
+
+    grandchild_path = viewer.resolve_item_path(grandchild_item)
+    assert grandchild_path == "parent.child.grandchild", f"Expected 'parent.child.grandchild', got '{grandchild_path}'"
+
+
+def test_resolve_item_path_with_list(viewer):
+    from PyQt6.QtGui import QStandardItem
+
+    # **Step 1:** Set up `data_source` with 'my_list' as an attribute
+    viewer.data_source.my_list = [0, 1, 2]
+
+    # **Step 2:** Create the item hierarchy in the model
+    root = viewer.model.invisibleRootItem()
+    list_item = QStandardItem("my_list")
+    list_child = QStandardItem("[0]")  # Represents the first element in the list
+
+    root.appendRow([list_item, QStandardItem(), QStandardItem(), QStandardItem(), QStandardItem()])
+    list_item.appendRow([list_child, QStandardItem(), QStandardItem(), QStandardItem(), QStandardItem()])
+
+    # **Step 3:** Invoke `resolve_item_path` and assert the path
+    path = viewer.resolve_item_path(list_child)
+    assert path == "my_list[0]", f"Expected 'my_list[0]', got '{path}'"
+
+
+def test_resolve_item_path_with_dict(viewer):
+    from PyQt6.QtGui import QStandardItem
+
+    # **Step 1:** Set up `data_source` with 'my_dict' as an attribute
+    viewer.data_source.my_dict = {"key": "value"}
+
+    # **Step 2:** Create the item hierarchy in the model
+    root = viewer.model.invisibleRootItem()
+    dict_item = QStandardItem("my_dict")
+    dict_key = QStandardItem("key")  # Represents a key in the dictionary
+
+    root.appendRow([dict_item, QStandardItem(), QStandardItem(), QStandardItem(), QStandardItem()])
+    dict_item.appendRow([dict_key, QStandardItem(), QStandardItem(), QStandardItem(), QStandardItem()])
+
+    # **Step 3:** Invoke `resolve_item_path` and assert the path
+    path = viewer.resolve_item_path(dict_key)
+    assert path == 'my_dict["key"]', f"Expected 'my_dict[\"key\"]', got '{path}'"
+
+
+
+def test_resolve_item_path_invalid(viewer):
+    from PyQt6.QtGui import QStandardItem
+
+    # Create an item without a parent
+    standalone_item = QStandardItem("standalone")
+    path = viewer.resolve_item_path(standalone_item)
+
+    # Since the item is not in the model, the path should only include its text
+    assert path == "standalone", f"Expected 'standalone', got '{path}'"
