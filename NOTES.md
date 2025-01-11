@@ -8,7 +8,9 @@ To develop:
 - Drop files to import
 - Fix drag for object key dicts
 - Bug: set a variable under alias.child, update, set it to none, can't update
+- Bug: "AttributeError: Can't pickle local object 'create_namedtuple_with_type_equality.<locals>.NamedTupleWithCustomEquality'" when dragging 
 - Menu with no selection? an update all entry would allow to add new variables added under alias
+- Tree: slow with long lists. Expand should be limited to n elements
 - Variables preview:
   - change ... placement (in array, only if more elements)
   - list of NamedTupleWithCustomEquality in sva: why does it not display str representation?
