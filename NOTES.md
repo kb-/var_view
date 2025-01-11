@@ -7,7 +7,9 @@ To develop:
   Max length parameter
 - Drop files to import
 - Fix drag for object key dicts
-- Variables preview: 
+- Bug: set a variable under alias.child, update, set it to none, can't update
+- Menu with no selection? an update all entry would allow to add new variables added under alias
+- Variables preview:
   - change ... placement (in array, only if more elements)
   - list of NamedTupleWithCustomEquality in sva: why does it not display str representation?
 
