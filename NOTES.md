@@ -7,7 +7,9 @@ To develop:
   Max length parameter
 - Drop files to import
 - Fix drag for object key dicts
-- Variables preview: change ... placement (in array, only if more elements)
+- Variables preview: 
+  - change ... placement (in array, only if more elements)
+  - list of NamedTupleWithCustomEquality in sva: why does it not display str representation?
 
 To experiment:
 - AI agent plot:  
