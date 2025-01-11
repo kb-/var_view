@@ -9,7 +9,7 @@ To develop:
 - Fix drag for object key dicts
 - Bug: set a variable under alias.child, update, set it to none, can't update
 - Bug: "AttributeError: Can't pickle local object 'create_namedtuple_with_type_equality.<locals>.NamedTupleWithCustomEquality'" when dragging 
-- Bug: froze on .mat export from a list of dicts containing sva ._asdict() results
+- Bug: froze on .mat export from a list of dicts containing sva ._asdict() results; sva.variable_viewer.exporter.save_as_mat_single(name='result',value=sva.tmp_video_sva,file_path=r'C:\Users\olivi\Documents\code\evm\data\potence\results\result1.mat') gives some string only
 - Menu with no selection? an update all entry would allow to add new variables added under alias
 - Tree: slow with long lists. Expand should be limited to n elements
 - Variables preview:
