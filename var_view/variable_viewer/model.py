@@ -1,4 +1,4 @@
-from PyQt6.QtGui import QStandardItemModel
+from PyQt6.QtGui import QStandardItemModel, QStandardItem
 from PyQt6.QtCore import Qt, QModelIndex, QMimeData
 import logging
 from typing import List
@@ -39,32 +39,90 @@ class VariableStandardItemModel(QStandardItemModel):
 
     def mimeData(self, indexes: List[QModelIndex]) -> QMimeData:
         """
-        Creates MIME data for drag-and-drop operations.
-
-        Args:
-            indexes: A list of QModelIndex objects representing the items being dragged.
-
-        Returns:
-            QMimeData: The MIME data containing the concatenated variable paths.
+        Creates MIME data for drag-and-drop operations, generating multiline paths
+        for items with complex dict keys.
         """
         mime_data = super().mimeData(indexes)
-        paths = []
+        all_lines = []
 
         for idx in indexes:
             if idx.column() != 0:  # Only process column 0 items
                 continue
             item = self.itemFromIndex(idx)
             if item:
+                # Use the new helper to compute multiline path for the item
+                lines = self.compute_multiline_path_for_item(item)
+                all_lines.extend(lines)
+
+        if all_lines:
+            mime_data.setText("\n".join(all_lines))
+            logger.debug(f"Dragging multiline variable paths:\n{mime_data.text()}")
+
+        return mime_data
+
+    def compute_multiline_path_for_item(self, item: QStandardItem) -> list:
+        try:
+            lines = []
+            ancestors = []
+            current = item
+            while current is not None:
+                ancestors.append(current)
+                current = current.parent()
+            ancestors.reverse()
+
+            # Fallback for items without a complex ancestry:
+            if len(ancestors) == 1:
                 path = self.viewer.resolve_item_path(item)
                 if path and not path.startswith(self.alias):
                     path = f"{self.alias}.{path}"
-                paths.append(path)
+                return [path]
 
-        if paths:
-            mime_data.setText("\n".join(paths))
-            logger.debug(f"Dragging variable paths: {paths}")
+            current_expr = self.alias
+            tmp_var_count = 0
 
-        return mime_data
+            for node in ancestors[1:]:
+                meta = node.data(Qt.ItemDataRole.UserRole + 2)
+                if meta is not None:
+                    # Validate metadata structure and key index
+                    if (isinstance(meta, tuple) and len(meta) == 2):
+                        parent_dict, key_index = meta
+                        if isinstance(parent_dict, dict):
+                            keys_list = list(parent_dict.keys())
+                            if 0 <= key_index < len(keys_list):
+                                key_obj = keys_list[key_index]
+                            else:
+                                key_obj = "<invalid_key_index>"
+                        else:
+                            key_obj = "<invalid_parent_dict>"
+
+                        tmp_var_name = f"tmp_key_{tmp_var_count}"
+                        tmp_var_count += 1
+                        lines.append(f"{tmp_var_name} = {repr(key_obj)}")
+                        current_expr += f"[{tmp_var_name}]"
+                    else:
+                        current_expr += f".{node.text()}"
+                else:
+                    parent = node.parent()
+                    # Check if parent's user data indicates a dict to handle simple keys
+                    parent_data = parent.data(
+                        Qt.ItemDataRole.UserRole + 1) if parent else None
+                    if parent is not None and isinstance(parent_data, dict):
+                        key_text = node.text()
+                        current_expr += f"[{repr(key_text)}]"
+                    else:
+                        current_expr += f".{node.text()}"
+
+            lines.append(current_expr)
+            return lines
+
+        except Exception as e:
+            logger.error(
+                f"Error computing multiline path for item '{item.text()}': {e}")
+            # Fallback to simpler resolution on error
+            path = self.viewer.resolve_item_path(item)
+            if path and not path.startswith(self.alias):
+                path = f"{self.alias}.{path}"
+            return [path]
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlag:
         """

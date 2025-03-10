@@ -260,19 +260,33 @@ class VariableViewer(QMainWindow):
                 for i, elem in enumerate(value):
                     self.add_variable(f"[{i}]", elem, parent_item)
             elif isinstance(value, dict):
-                for key, val in value.items():
+                for idx, (key, val) in enumerate(value.items()):
                     if isinstance(key, (str, int, float, bool, tuple)):
                         # Basic types: display key as string
                         display_key = str(key)
-                        obj_ref = val if self.can_expand(
-                            val) else None  # Reference the value if expandable
+                        obj_ref = val if self.can_expand(val) else None
+                        self.add_variable(display_key, val, parent_item,
+                                          obj_ref=obj_ref)
                     else:
                         # Object keys: display with type info
                         display_key = f"Key: {str(key)}"
-                        obj_ref = val if self.can_expand(
-                            val) else None  # Reference the value if expandable
+                        obj_ref = val if self.can_expand(val) else None
 
-                    self.add_variable(display_key, val, parent_item, obj_ref=obj_ref)
+                        # Use existing logic to add variable
+                        self.add_variable(display_key, val, parent_item,
+                                          obj_ref=obj_ref)
+
+                        # Retrieve the just added item from parent_item.
+                        # Assuming the new item is appended at the end:
+                        row_count = parent_item.rowCount()
+                        if row_count > 0:
+                            # Get the last row's first column item (variable name column)
+                            complex_key_item = parent_item.child(row_count - 1, 0)
+                            if complex_key_item:
+                                # Store (parent_dict, key_index) as metadata on this item
+                                complex_key_item.setData((value, idx),
+                                                         Qt.ItemDataRole.UserRole + 2)
+
 
 
             elif isinstance(value, tuple) and hasattr(value, '_fields'):  # named tuple

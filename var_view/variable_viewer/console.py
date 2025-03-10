@@ -1,4 +1,5 @@
 # var_view/variable_viewer/console.py
+import traceback
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout
 from qtconsole.rich_jupyter_widget import RichJupyterWidget
@@ -100,4 +101,4 @@ class ConsoleManager:
 
             logger.info(f"Console window opened and '{self.alias}' injected.")
         except Exception as e:
-            logger.error(f"Failed to set up console: {e}")
+            logger.error(f"Failed to set up console: {e}\n{traceback.format_exc()}")
