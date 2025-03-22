@@ -195,7 +195,8 @@ class VariableViewer(QMainWindow):
             item_mem.setEditable(False)
 
             # Store object reference if provided
-            if obj_ref is None and self.can_expand(value):
+            if obj_ref is None and self.can_expand(value) and not isinstance(value,
+                                                                             list):
                 obj_ref = ObjectRef(value)
                 item_var.setData(obj_ref, Qt.ItemDataRole.UserRole + 1)
 

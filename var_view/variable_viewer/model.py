@@ -38,21 +38,21 @@ class VariableStandardItemModel(QStandardItemModel):
         return Qt.DropAction.CopyAction
 
     def mimeData(self, indexes: List[QModelIndex]) -> QMimeData:
-        """
-        Creates MIME data for drag-and-drop operations, generating multiline paths
-        for items with complex dict keys.
-        """
         mime_data = super().mimeData(indexes)
         all_lines = []
 
         for idx in indexes:
-            if idx.column() != 0:  # Only process column 0 items
+            if idx.column() != 0:
                 continue
             item = self.itemFromIndex(idx)
             if item:
-                # Use the new helper to compute multiline path for the item
-                lines = self.compute_multiline_path_for_item(item)
-                all_lines.extend(lines)
+                # Use pre-stored safe drag text if available
+                safe_path = item.data(Qt.ItemDataRole.UserRole + 3)
+                if safe_path:
+                    all_lines.append(safe_path)
+                else:
+                    lines = self.compute_multiline_path_for_item(item)
+                    all_lines.extend(lines)
 
         if all_lines:
             mime_data.setText("\n".join(all_lines))
