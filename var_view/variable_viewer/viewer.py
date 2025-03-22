@@ -21,6 +21,18 @@ from var_view.variable_viewer.utils import infer_type_hint_general, format_bytes
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
 
+
+class ObjectRef:
+    __slots__ = ('obj',)
+
+    def __init__(self, obj):
+        self.obj = obj
+
+    def __repr__(self):
+        # Return a safe summary instead of traversing the object.
+        return f"<ObjectRef {type(self.obj).__name__} at {hex(id(self.obj))}>"
+
+
 class VariableViewer(QMainWindow):
     """
     A GUI-based viewer that:
@@ -183,8 +195,8 @@ class VariableViewer(QMainWindow):
             item_mem.setEditable(False)
 
             # Store object reference if provided
-            if obj_ref is not None:
-                # Use a custom role to store the object reference
+            if obj_ref is None and self.can_expand(value):
+                obj_ref = ObjectRef(value)
                 item_var.setData(obj_ref, Qt.ItemDataRole.UserRole + 1)
 
             parent_item.appendRow([item_var, item_type, item_size, item_val, item_mem])
@@ -208,6 +220,22 @@ class VariableViewer(QMainWindow):
                 QStandardItem("")
             ])
 
+    @staticmethod
+    def _build_visited_from_item(item):
+        """
+        Traverse up from the given item, collecting the IDs of the objects
+        associated with each node (if any). This represents the visited set for
+        the branch leading to this item.
+        """
+        visited = set()
+        cur = item
+        while cur is not None:
+            obj = cur.data(Qt.ItemDataRole.UserRole + 1)
+            if obj is not None:
+                visited.add(id(obj))
+            cur = cur.parent()
+        return visited
+
     def handle_expand(self, index):
         """
         Called when a tree item is expanded; checks for a placeholder row to load children.
@@ -217,9 +245,10 @@ class VariableViewer(QMainWindow):
             if item:
                 # Retrieve the object reference if it exists
                 obj_ref = item.data(Qt.ItemDataRole.UserRole + 1)
-                if obj_ref is not None:
-                    value = obj_ref  # Use the stored object reference
+                if isinstance(obj_ref, ObjectRef):
+                    value = obj_ref.obj
                 else:
+                    value = obj_ref
                     # Resolve the variable path as usual
                     path = self.resolve_item_path(item)
                     value = self.resolve_variable(path)
@@ -227,9 +256,11 @@ class VariableViewer(QMainWindow):
                 if value is not None and item.hasChildren():
                     first_child = item.child(0, 0)
                     if first_child.text() == "Loading...":
+                        item.removeRow(0)  # Remove the placeholder row
                         # Remove the placeholder and load children
-                        item.removeRow(0)
-                        self.load_children(item, value)
+                        # Build a visited set from the current branch.
+                        visited = self._build_visited_from_item(item)
+                        self.load_children(item, value, visited)
                         # After loading children, resize columns to fit new content
                         self.resize_all_columns()
                 else:
