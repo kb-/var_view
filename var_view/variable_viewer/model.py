@@ -38,7 +38,8 @@ class VariableStandardItemModel(QStandardItemModel):
         return Qt.DropAction.CopyAction
 
     def mimeData(self, indexes: List[QModelIndex]) -> QMimeData:
-        mime_data = super().mimeData(indexes)
+        from PyQt6.QtCore import QMimeData
+        mime_data = QMimeData()
         all_lines = []
 
         for idx in indexes:
@@ -46,11 +47,12 @@ class VariableStandardItemModel(QStandardItemModel):
                 continue
             item = self.itemFromIndex(idx)
             if item:
-                # Use pre-stored safe drag text if available
+                # Prefer the precomputed safe drag text (UserRole+3)
                 safe_path = item.data(Qt.ItemDataRole.UserRole + 3)
                 if safe_path:
                     all_lines.append(safe_path)
                 else:
+                    # Fallback to computing the multiline path if needed
                     lines = self.compute_multiline_path_for_item(item)
                     all_lines.extend(lines)
 
