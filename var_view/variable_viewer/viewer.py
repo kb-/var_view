@@ -201,15 +201,23 @@ class VariableViewer(QMainWindow):
                         or (hasattr(parent_obj, "obj") and isinstance(parent_obj.obj,
                                                                       dict))
                 ):
-                    safe_drag_path = f'{parent_safe}[{repr(name)}]'
+                    safe_drag_path = f"{parent_safe}[{repr(name)}]"
+                elif parent_obj is not None and (
+                        isinstance(parent_obj, list)
+                        or (hasattr(parent_obj, "obj") and isinstance(parent_obj.obj,
+                                                                      list))
+                ):
+                    # Child's name already includes brackets, so concatenate directly.
+                    safe_drag_path = f"{parent_safe}{name}"
                 else:
-                    safe_drag_path = f'{parent_safe}.{name}'
+                    safe_drag_path = f"{parent_safe}.{name}"
             else:
                 safe_drag_path = f"{self.model.alias}.{name}"
+
             item_var.setData(safe_drag_path, Qt.ItemDataRole.UserRole + 3)
 
             # Always store the object reference (wrapped in ObjectRef) for expandable values (except lists)
-            if self.can_expand(value) and not isinstance(value, list):
+            if self.can_expand(value):
                 if not isinstance(obj_ref, ObjectRef):
                     obj_ref = ObjectRef(value)
                 item_var.setData(obj_ref, Qt.ItemDataRole.UserRole + 1)
