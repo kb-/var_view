@@ -1,3 +1,4 @@
+# tests/test_model.py
 import pytest
 from PyQt6.QtCore import Qt, QModelIndex
 from PyQt6.QtGui import QStandardItem
