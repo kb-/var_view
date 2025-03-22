@@ -122,14 +122,19 @@ class VariableViewer(QMainWindow):
         """
         self.model.clear()
         self.model.setHorizontalHeaderLabels(
-            ["Variable", "Type", "Size", "Value", "Memory"])
+            ["Variable", "Type", "Size", "Value", "Memory"]
+        )
 
-        all_vars = {
-            name: getattr(self.data_source, name, None)
-            for name in dir(self.data_source)
-            if not name.startswith("_") and not callable(
-                getattr(self.data_source, name, None))
-        }
+        all_vars = {}
+        for name in dir(self.data_source):
+            if name.startswith("_"):
+                continue
+            value = getattr(self.data_source, name, None)
+
+            # Include non-callables OR user-defined types (classes)
+            if not callable(value) or (
+                    isinstance(value, type) and value.__module__ != "builtins"):
+                all_vars[name] = value
 
         for name, value in all_vars.items():
             self.add_variable(name, value, self.model.invisibleRootItem())
