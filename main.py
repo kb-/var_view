@@ -47,6 +47,9 @@ class AppDataSource:
             def start(self):
                 return "Engine started."
 
+            def __str__(self):
+                return f"Engine(type={self.type}, horsepower={self.horsepower})"
+
         class Car:
             def __init__(self, make, model, engine):
                 self.make = make
@@ -59,6 +62,9 @@ class AppDataSource:
 
             def set_owner(self, owner):
                 self.owner = owner
+
+            def __str__(self):
+                return f"Car({self.make} {self.model}, Engine={self.engine})"
 
         class Person:
             def __init__(self, name, age, car=None):
@@ -86,6 +92,7 @@ class AppDataSource:
 
         # Example: Dictionaries with object keys and named tuples
         CustomKey = namedtuple('CustomKey', ['id', 'description'])
+        self.custom_key = CustomKey
         self.object_key_dict = {
             CustomKey(1, "First Key"): "Object Value 1",
             CustomKey(2, "Second Key"): {"nested": [1, 2, 3]},
