@@ -73,7 +73,8 @@ class VariableStandardItemModel(QStandardItemModel):
             # Fallback for items without a complex ancestry:
             if len(ancestors) == 1:
                 path = self.viewer.resolve_item_path(item)
-                if path and not path.startswith(self.alias):
+                if path and not (path.startswith(f"{self.alias}.") or path.startswith(
+                        f"{self.alias}[")):
                     path = f"{self.alias}.{path}"
                 return [path]
 
@@ -103,7 +104,6 @@ class VariableStandardItemModel(QStandardItemModel):
                         current_expr += f".{node.text()}"
                 else:
                     parent = node.parent()
-                    # Check if parent's user data indicates a dict to handle simple keys
                     parent_data = parent.data(
                         Qt.ItemDataRole.UserRole + 1) if parent else None
                     if parent is not None and isinstance(parent_data, dict):
@@ -111,6 +111,10 @@ class VariableStandardItemModel(QStandardItemModel):
                         current_expr += f"[{repr(key_text)}]"
                     else:
                         current_expr += f".{node.text()}"
+
+            if not (current_expr.startswith(
+                    f"{self.alias}.") or current_expr.startswith(f"{self.alias}[")):
+                current_expr = f"{self.alias}.{current_expr}"
 
             lines.append(current_expr)
             return lines
@@ -120,7 +124,8 @@ class VariableStandardItemModel(QStandardItemModel):
                 f"Error computing multiline path for item '{item.text()}': {e}")
             # Fallback to simpler resolution on error
             path = self.viewer.resolve_item_path(item)
-            if path and not path.startswith(self.alias):
+            if path and not (path.startswith(f"{self.alias}.") or path.startswith(
+                    f"{self.alias}[")):
                 path = f"{self.alias}.{path}"
             return [path]
 
