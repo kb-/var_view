@@ -181,35 +181,47 @@ class VariableViewer(QMainWindow):
 
             # Create QStandardItems for each column
             item_var = QStandardItem(name)
+            # Always enable drag for the variable name item
+            item_var.setFlags(item_var.flags() | Qt.ItemFlag.ItemIsDragEnabled)
             item_type = QStandardItem(value_type)
             item_size = QStandardItem(size_str)
             item_val = QStandardItem(formatted_value)
             item_mem = QStandardItem(memory_usage if memory_usage else "")
 
-            # Read-only columns
-            item_var.setEditable(False)
-            item_var.setFlags(item_var.flags() | Qt.ItemFlag.ItemIsDragEnabled)
-            item_type.setEditable(False)
-            item_size.setEditable(False)
-            item_val.setEditable(False)
-            item_mem.setEditable(False)
+            # Make columns read-only
+            for item in [item_var, item_type, item_size, item_val, item_mem]:
+                item.setEditable(False)
 
-            # Store object reference if provided
-            if obj_ref is None and self.can_expand(value) and not isinstance(value,
-                                                                             list):
-                obj_ref = ObjectRef(value)
+            # Determine safe drag path based on parent's safe drag text (UserRole+3)
+            parent_safe = parent_item.data(Qt.ItemDataRole.UserRole + 3)
+            if parent_safe:
+                parent_obj = parent_item.data(Qt.ItemDataRole.UserRole + 1)
+                if parent_obj is not None and (
+                        isinstance(parent_obj, dict)
+                        or (hasattr(parent_obj, "obj") and isinstance(parent_obj.obj,
+                                                                      dict))
+                ):
+                    safe_drag_path = f'{parent_safe}[{repr(name)}]'
+                else:
+                    safe_drag_path = f'{parent_safe}.{name}'
+            else:
+                safe_drag_path = f"{self.model.alias}.{name}"
+            item_var.setData(safe_drag_path, Qt.ItemDataRole.UserRole + 3)
+
+            # Always store the object reference (wrapped in ObjectRef) for expandable values (except lists)
+            if self.can_expand(value) and not isinstance(value, list):
+                if not isinstance(obj_ref, ObjectRef):
+                    obj_ref = ObjectRef(value)
                 item_var.setData(obj_ref, Qt.ItemDataRole.UserRole + 1)
 
             parent_item.appendRow([item_var, item_type, item_size, item_val, item_mem])
 
-            # If it can expand, add a placeholder row for lazy loading
+            # If it can expand, add a placeholder row for lazy loading children
             if lazy_load and self.can_expand(value):
                 placeholder = QStandardItem("Loading...")
                 placeholder.setEditable(False)
-                # Add empty items for other columns
                 item_var.appendRow([
-                    placeholder, QStandardItem(), QStandardItem(), QStandardItem(),
-                    QStandardItem()
+                    placeholder, QStandardItem(), QStandardItem(), QStandardItem(), QStandardItem()
                 ])
         except Exception as e:
             logger.error(f"Error adding variable '{name}': {e}")
