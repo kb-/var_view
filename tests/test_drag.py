@@ -198,11 +198,14 @@ def expand_tree_to_path(viewer, safe_path):
         QTest.qWait(300)
 
         found = False
+        print(f"Expanding '{current_item.text()}' for token '{token}'...")
         for row in range(current_item.rowCount()):
             child = current_item.child(row, 0)
+            print(f"  child -> {child.text()}")
+
             # For tokens that are bracketed (e.g. "[0]"), compare directly.
             if token.startswith('['):
-                if child.text() == token:
+                if f"['{child.text()}']" == token:
                     current_item = child
                     found = True
                     break
