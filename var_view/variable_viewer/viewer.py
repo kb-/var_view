@@ -494,10 +494,16 @@ class VariableViewer(QMainWindow):
         Right-click context menu: Export, Update, Copy Path, etc.
         """
         indexes = self.tree_view.selectedIndexes()
-        if not indexes:
-            return
-
         menu = QMenu()
+
+        # If no items are selected, show a simple context menu with Update.
+        if not indexes:
+            update_action = QAction("Update", self)
+            update_action.triggered.connect(self.refresh_view)
+            menu.addAction(update_action)
+            menu.exec(self.tree_view.viewport().mapToGlobal(position))
+            self.resize_all_columns()
+            return
 
         # Single or multiple export
         if len(indexes) == 1:
@@ -510,7 +516,7 @@ class VariableViewer(QMainWindow):
                 lambda: self.export_selected_variables(indexes))
             menu.addAction(export_sel_action)
 
-        # Update for root-level
+        # Update for root-level: if any selected item is a top-level variable.
         for idx in indexes:
             item = self.model.itemFromIndex(idx)
             if item.parent() is None:
