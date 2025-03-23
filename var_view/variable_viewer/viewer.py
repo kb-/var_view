@@ -3,13 +3,15 @@
 import logging
 import re
 import sys  # Added import for sys.getsizeof
+from typing import List
 
 from PyQt6.QtWidgets import (
     QMainWindow, QTreeView, QVBoxLayout, QWidget, QMenu, QMessageBox,
     QHeaderView, QApplication
 )
 from PyQt6.QtGui import QAction, QStandardItem
-from PyQt6.QtCore import Qt, QObject
+from PyQt6.QtCore import Qt, QObject, QModelIndex
+from icecream import ic
 
 from var_view.variable_exporter import VariableExporter
 from var_view.plugin_manager import PluginManager  # Import PluginManager
@@ -300,6 +302,7 @@ class VariableViewer(QMainWindow):
         """
         Recursively loads child attributes/elements for dictionaries, lists, namedtuples, or objects.
         """
+        ic(value)
         if visited is None:
             visited = set()
 
@@ -318,6 +321,11 @@ class VariableViewer(QMainWindow):
                     self.add_variable(f"[{i}]", elem, parent_item)
             elif isinstance(value, dict):
                 for idx, (key, val) in enumerate(value.items()):
+                    # Retrieve the item just added in the last row of parent_item.
+                    key_item = parent_item.child(parent_item.rowCount() - 1, 0)
+                    # Store the actual type of the *key* so we can detect “complex” keys in the context menu.
+                    key_item.setData(type(key), Qt.ItemDataRole.UserRole + 4)
+
                     if isinstance(key, (str, int, float, bool, tuple)):
                         # Basic types: display key as string
                         display_key = str(key)
@@ -517,6 +525,7 @@ class VariableViewer(QMainWindow):
             menu.addAction(export_sel_action)
 
         # Update for root-level: if any selected item is a top-level variable.
+        custom_key_entries_indexes = []
         for idx in indexes:
             item = self.model.itemFromIndex(idx)
             if item.parent() is None:
@@ -526,12 +535,48 @@ class VariableViewer(QMainWindow):
                 menu.addAction(update_action)
                 break
 
+            # Filter out “basic” key types. Consider everything else “complex.”
+            key_type = item.data(Qt.ItemDataRole.UserRole + 4)
+            if key_type not in (str, int, float, bool, None):
+                custom_key_entries_indexes.append(idx)
+
+        copy_handle_action = QAction("Copy Object Handle", self)
+        copy_handle_action.triggered.connect(
+            lambda: self.copy_object_handle(custom_key_entries_indexes))
+        menu.addAction(copy_handle_action)
+
         # Copy Path action
         copy_path_action = QAction("Copy Path", self)
         copy_path_action.triggered.connect(lambda: self.copy_variable_path(indexes))
         menu.addAction(copy_path_action)
 
         menu.exec(self.tree_view.viewport().mapToGlobal(position))
+
+    def copy_object_handle(self, indexes: List[QModelIndex]) -> None:
+        """
+        Copies a snippet that retrieves a complex dictionary key by index, e.g.:
+            [k for k in c.object_key_dict.keys()][2]
+        """
+        snippets: List[str] = []
+        for idx in indexes:
+            if idx.column() != 0:
+                continue
+            item = self.model.itemFromIndex(idx)
+            parent_item = item.parent()
+            # Resolve parent's path: e.g. "c.object_key_dict"
+            if parent_item:
+                parts = self.model.compute_multiline_path_for_item(parent_item)
+                parent_path = parts[-1] if parts else self.model.alias
+            else:
+                parent_path = self.model.alias
+
+            # The item's row is used to index into the parent's .keys().
+            key_index = item.row()
+            snippet = f"[k for k in {parent_path}.keys()][{key_index}]"
+            snippets.append(snippet)
+
+        if snippets:
+            QApplication.clipboard().setText("\n".join(snippets))
 
     def export_variable(self, index):
         """

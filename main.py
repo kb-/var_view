@@ -65,8 +65,8 @@ class AppDataSource:
             def set_owner(self, owner):
                 self.owner = owner
 
-            def __str__(self):
-                return f"Car({self.make} {self.model}, Engine={self.engine})"
+            # def __str__(self):
+            #     return f"Car({self.make} {self.model}, Engine={self.engine})"
 
         class Person:
             def __init__(self, name, age, car=None):
@@ -146,7 +146,7 @@ def main():
     # Instantiate the PaginatedVariableViewer with the data source.
     # This viewer includes pagination for any container level.
     viewer = VariableViewer(data_source, "c", "var_view/plugins")
-    viewer.add_console("c")  # Integrate the console
+    # viewer.add_console("c")  # Integrate the console
     viewer.show()
 
     def update_variables_after_show():
