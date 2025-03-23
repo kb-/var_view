@@ -1,6 +1,6 @@
 [project]
 name = "var-view"
-version = "0.1.0"
+version = "0.2.0"
 description = "A PyQt-based variable viewer for exploring Python objects interactively."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -26,6 +26,7 @@ dev = [
     "opencv-python>=4.10.0.84",
     "pytest-cov>=6.0.0",
     "pyautogui>=0.9.54",
+    "icecream>=2.1.4",
 ]
 
 [tool.uv.sources]
