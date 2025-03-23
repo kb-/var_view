@@ -81,6 +81,9 @@ class AppDataSource:
                 self.car = car
                 car.set_owner(self)
 
+            def __str__(self):
+                return f"Person({self.name}, {self.age})"
+
         # Instantiate custom objects
         engine_v8 = Engine(450, "V8")
         car_ferrari = Car("Ferrari", "488 Spider", engine_v8)
@@ -100,16 +103,22 @@ class AppDataSource:
         }
 
         # New Example 1: Long multi-level list
-        # Create a 3-level nested list: 5 outer lists, each containing 10 lists,
-        # each with 150 string items.
+        # Create a 3-level nested list: 1000 outer lists, each containing 10 lists,
+        # each with 1000 string items.
         self.long_multi_level_list = [
             [ [f"List Item {i}-{j}-{k}" for k in range(1000)] for j in range(10)]
             for i in range(1000)
         ]
 
+        # For demonstration, add a person_john child to the last-level inner lists
+        # of the first outer list only (to avoid massive changes).
+        for j in range(len(self.long_multi_level_list[0])):
+            # Append person_john to each inner list in the first outer list.
+            self.long_multi_level_list[0][j].append(self.test_obj)
+
         # New Example 2: Long multi-level dictionary
-        # Create a dictionary with 5 keys at level 1; each level-1 key maps to a dictionary
-        # with 10 keys at level 2; each of these maps to another dict with 150 key/value pairs.
+        # Create a dictionary with 10 keys at level 1; each level-1 key maps to a dictionary
+        # with 1000 keys at level 2; each of these maps to another dict with 1000 key/value pairs.
         self.long_multi_level_dict = {
             f"Level1_{i}": {
                 f"Level2_{j}": {f"Level3_{k}": f"Value_{i}_{j}_{k}" for k in range(1000)}
@@ -117,6 +126,11 @@ class AppDataSource:
             }
             for i in range(10)
         }
+
+        # For demonstration, add a person_john child to the first inner dictionary of the first outer key.
+        first_outer_key = next(iter(self.long_multi_level_dict))
+        first_inner_key = next(iter(self.long_multi_level_dict[first_outer_key]))
+        self.long_multi_level_dict[first_outer_key][first_inner_key]["Person"] = self.test_obj
 
         # Large tensor (on GPU if available)
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
