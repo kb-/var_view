@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QTimer
 
 # Import your standard viewer and the new paginated viewer
-from var_view.variable_viewer import VariableViewer
+from var_view.variable_viewer.paginated_viewer import PaginatedVariableViewer as VariableViewer
 from variable_viewer.paginated_viewer import PaginatedVariableViewer
 
 # Configure logging for debugging purposes
@@ -145,7 +145,7 @@ def main():
 
     # Instantiate the PaginatedVariableViewer with the data source.
     # This viewer includes pagination for any container level.
-    viewer = PaginatedVariableViewer(data_source, "c", "var_view/plugins")
+    viewer = VariableViewer(data_source, "c", "var_view/plugins")
     viewer.add_console("c")  # Integrate the console
     viewer.show()
 

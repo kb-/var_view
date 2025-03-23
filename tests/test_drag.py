@@ -3,8 +3,9 @@ import pytest
 import pyautogui  # pip install pyautogui
 from PyQt6.QtTest import QTest
 from PyQt6.QtCore import Qt, QPoint
-from var_view.variable_viewer.viewer import VariableViewer
+from var_view.variable_viewer.paginated_viewer import PaginatedVariableViewer as VariableViewer
 from main import AppDataSource
+
 
 @pytest.fixture
 def viewer(qtbot):
@@ -15,6 +16,7 @@ def viewer(qtbot):
     qtbot.addWidget(viewer)
     qtbot.waitExposed(viewer)
     return viewer
+
 
 def test_dragging_each_root_entry(qtbot, viewer):
     """
@@ -47,6 +49,7 @@ def test_dragging_each_root_entry(qtbot, viewer):
         QTest.mouseMove(tree_view.viewport(), end_pos)
         QTest.mouseRelease(tree_view.viewport(), Qt.MouseButton.LeftButton, pos=end_pos)
         pyautogui.moveTo(viewer_center.x() + 10, viewer_center.y())
+
 
 def force_expand_along_tokens(viewer, tokens):
     """
@@ -90,6 +93,7 @@ def force_expand_along_tokens(viewer, tokens):
             return None
     return current_item
 
+
 def expand_tree_to_path(viewer, safe_path):
     """
     Given a safe path string (e.g., "c.list_obj[0].name"),
@@ -105,6 +109,7 @@ def expand_tree_to_path(viewer, safe_path):
     # For example, "list_obj[0].name" → ["list_obj", "[0]", "name"]
     return force_expand_along_tokens(viewer, tokens)
 
+
 def collect_safe_paths(item):
     """Recursively collects safe drag paths from item and its descendants."""
     paths = []
@@ -115,6 +120,7 @@ def collect_safe_paths(item):
         child = item.child(row, 0)
         paths.extend(collect_safe_paths(child))
     return paths
+
 
 @pytest.mark.parametrize("expected_path", [
     "c.list_obj[0].name",
