@@ -64,7 +64,7 @@ def force_expand_along_tokens(viewer, tokens):
             first_child = current_item.child(0, 0)
             if first_child and first_child.text() == "Loading...":
                 viewer.handle_expand(idx)
-        QTest.qWait(300)  # allow children to load
+        QTest.qWait(30)  # allow children to load
 
         found = False
         # If token is bracketed, strip brackets and quotes for comparison.
@@ -73,7 +73,7 @@ def force_expand_along_tokens(viewer, tokens):
         else:
             token_cmp = token
 
-        print(f"Expanding '{current_item.text()}' for token '{token}' (comparing as '{token_cmp}')...")
+        # print(f"Expanding '{current_item.text()}' for token '{token}' (comparing as '{token_cmp}')...")
         for row in range(current_item.rowCount()):
             child = current_item.child(row, 0)
             # If child text is bracketed, normalize it too.
@@ -81,7 +81,7 @@ def force_expand_along_tokens(viewer, tokens):
                 child_cmp = child.text().strip("[]'\"")
             else:
                 child_cmp = child.text()
-            print(f"  child -> {child.text()} (normalized: '{child_cmp}')")
+            # print(f"  child -> {child.text()} (normalized: '{child_cmp}')")
             if child_cmp == token_cmp:
                 current_item = child
                 found = True
