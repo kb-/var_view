@@ -1,4 +1,6 @@
 # tests/test_drag.py
+import re
+
 import pytest
 import pyautogui  # Install with: pip install pyautogui
 from PyQt6.QtTest import QTest
@@ -154,6 +156,95 @@ def test_dragging_child_entry(qtbot, viewer):
     start_pos = rect.center()
     end_pos = start_pos + QPoint(50, 50)
     pyautogui.moveTo(viewer_center.x(), viewer_center.y())
+    QTest.mousePress(tree_view.viewport(), Qt.MouseButton.LeftButton, pos=start_pos)
+    QTest.mouseMove(tree_view.viewport(), end_pos)
+    QTest.mouseRelease(tree_view.viewport(), Qt.MouseButton.LeftButton, pos=end_pos)
+    pyautogui.moveTo(viewer_center.x() + 10, viewer_center.y())
+
+
+import re
+from PyQt6.QtTest import QTest
+from PyQt6.QtCore import QPoint
+
+
+def expand_tree_to_path(viewer, safe_path):
+    """
+    Given a safe path string (e.g. "c.list_obj[0].name"),
+    force the tree to expand along that path and return the final QStandardItem.
+    This function strips the alias ("c.") and tokenizes the remainder.
+    For each token, it expands the current item (forcing lazy loading if needed)
+    and searches its children for a matching text.
+    """
+    alias = "c."
+    if not safe_path.startswith(alias):
+        raise ValueError("Safe path must start with 'c.'")
+    remainder = safe_path[len(alias):]
+
+    # Tokenize: tokens are sequences of word characters or bracketed parts.
+    tokens = re.findall(r'\w+|\[[^\]]+\]', remainder)
+    # For example, "list_obj[0].name" yields: ["list_obj", "[0]", "name"]
+
+    current_item = viewer.model.invisibleRootItem()
+    for token in tokens:
+        # Expand the current item to trigger lazy loading.
+        idx = current_item.index()
+        viewer.tree_view.expand(idx)
+        # If the item has a "Loading..." placeholder, trigger expansion.
+        if current_item.rowCount() > 0:
+            first_child = current_item.child(0, 0)
+            if first_child.text() == "Loading...":
+                viewer.handle_expand(idx)
+        # Wait a bit for children to load.
+        QTest.qWait(300)
+
+        found = False
+        for row in range(current_item.rowCount()):
+            child = current_item.child(row, 0)
+            # For tokens that are bracketed (e.g. "[0]"), compare directly.
+            if token.startswith('['):
+                if child.text() == token:
+                    current_item = child
+                    found = True
+                    break
+            else:
+                # Otherwise, compare the token with the child text.
+                if child.text() == token:
+                    current_item = child
+                    found = True
+                    break
+        if not found:
+            return None
+    return current_item
+
+
+@pytest.mark.parametrize("expected_path", [
+    "c.list_obj[0].name",
+    "c.complex_nested_dict['level1']['level2']['level3'][0]",
+    "c.nested_dict['b']['d']",
+    "c.cyclic_ref['self']['self']['self']",
+    "c.object_key_dict[\"CustomKey(id=2, description='Second Key')\"][\'nested\'][0]"
+])
+def test_dragging_children_by_path(qtbot, viewer, expected_path):
+    """
+    For each expected safe drag path, force expansion of the tree
+    so that the item is loaded, then verify its mime data text equals the expected path.
+    """
+    target_item = expand_tree_to_path(viewer, expected_path)
+    assert target_item is not None, f"Could not expand tree to safe path '{expected_path}'"
+
+    index = target_item.index()
+    mime_data = viewer.model.mimeData([index])
+    drag_text = mime_data.text()
+    print("drag_text", drag_text)
+    assert drag_text == expected_path, f"Expected: {expected_path}, got: {drag_text}"
+
+    # Optionally, simulate a drag gesture.
+    tree_view = viewer.tree_view
+    rect = tree_view.visualRect(index)
+    start_pos = rect.center()
+    end_pos = start_pos + QPoint(50, 50)
+    viewer_center = viewer.mapToGlobal(viewer.rect().center())
+    pyautogui.moveTo(int(viewer_center.x()), int(viewer_center.y()))
     QTest.mousePress(tree_view.viewport(), Qt.MouseButton.LeftButton, pos=start_pos)
     QTest.mouseMove(tree_view.viewport(), end_pos)
     QTest.mouseRelease(tree_view.viewport(), Qt.MouseButton.LeftButton, pos=end_pos)
