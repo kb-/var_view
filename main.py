@@ -9,8 +9,7 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QTimer
 
 # Import your standard viewer and the new paginated viewer
-from var_view.variable_viewer.paginated_viewer import PaginatedVariableViewer as VariableViewer
-from variable_viewer.paginated_viewer import PaginatedVariableViewer
+from var_view.variable_viewer.viewer import VariableViewer
 
 # Configure logging for debugging purposes
 logging.basicConfig(

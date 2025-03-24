@@ -44,9 +44,11 @@ class VariableViewer(QMainWindow):
       - Includes a console integration for interactive usage
     """
 
-    def __init__(self, data_source, alias="data_source", app_plugin_dir=None):
+    def __init__(self, data_source, alias="data_source", app_plugin_dir=None, batch_size=100):
         super().__init__()
         self.data_source = data_source
+        self.alias = alias
+        self.batch_size = batch_size
         self.exporter = VariableExporter(self)
 
         # Initialize PluginManager
@@ -81,6 +83,7 @@ class VariableViewer(QMainWindow):
         self.tree_view.expanded.connect(self.handle_expand)
         self.tree_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree_view.customContextMenuRequested.connect(self.show_context_menu)
+        self.tree_view.doubleClicked.connect(self.handle_double_click)
 
         # Resize columns
         header = self.tree_view.header()
@@ -298,7 +301,7 @@ class VariableViewer(QMainWindow):
         except Exception as e:
             logger.error(f"Error handling expand: {e}")
 
-    def load_children(self, parent_item, value, visited=None):
+    def load_children(self, parent_item, value, visited=None, start_index=0):
         """
         Recursively loads child attributes/elements for dictionaries, lists, namedtuples, or objects.
         """
@@ -315,42 +318,100 @@ class VariableViewer(QMainWindow):
                 return
             visited.add(id(value))
 
-            # Group 1: Handle iterable-like structures
+            # Group 1: Handle iterable-like structure
             if isinstance(value, list):
-                for i, elem in enumerate(value):
+                total = len(value)
+                end_index = min(start_index + self.batch_size, total)
+
+                for i in range(start_index, end_index):
+                    elem = value[i]
+                    # Use your existing add_variable to create the row.
                     self.add_variable(f"[{i}]", elem, parent_item)
+
+                if end_index < total:
+                    load_more_item = QStandardItem(
+                        f"... Load More ({end_index}/{total})")
+                    load_more_item.setEditable(False)
+                    load_more_item.setForeground(Qt.GlobalColor.blue)
+                    load_more_item.setData({
+                        'is_load_more': True,
+                        'container_type': 'list',
+                        'value_ref': value,
+                        'offset': end_index,
+                        'visited': visited  # still pass visited if needed downstream
+                    }, Qt.ItemDataRole.UserRole)
+                    parent_item.appendRow([
+                        load_more_item,
+                        QStandardItem(), QStandardItem(), QStandardItem(),
+                        QStandardItem()
+                    ])
+
+            # For dict-type containers:
             elif isinstance(value, dict):
-                for idx, (key, val) in enumerate(value.items()):
-                    # Retrieve the item just added in the last row of parent_item.
-                    key_item = parent_item.child(parent_item.rowCount() - 1, 0)
-                    # Store the actual type of the *key* so we can detect “complex” keys in the context menu.
-                    key_item.setData(type(key), Qt.ItemDataRole.UserRole + 4)
+                # Store a stable key list for consistent ordering.
+                stored_data = parent_item.data(Qt.ItemDataRole.UserRole + 10)
+                if stored_data and "dict_keys" in stored_data:
+                    dict_keys = stored_data["dict_keys"]
+                else:
+                    dict_keys = list(value.keys())
+                    parent_item.setData({"dict_keys": dict_keys},
+                                        Qt.ItemDataRole.UserRole + 10)
 
-                    if isinstance(key, (str, int, float, bool, tuple)):
-                        # Basic types: display key as string
-                        display_key = str(key)
-                        obj_ref = val if self.can_expand(val) else None
-                        self.add_variable(display_key, val, parent_item,
-                                          obj_ref=obj_ref)
-                    else:
-                        # Object keys: display with type info
-                        display_key = f"Key: {str(key)}"
-                        obj_ref = val if self.can_expand(val) else None
+                total = len(dict_keys)
+                end_index = min(start_index + self.batch_size, total)
 
-                        # Use existing logic to add variable
-                        self.add_variable(display_key, val, parent_item,
-                                          obj_ref=obj_ref)
+                for i in range(start_index, end_index):
+                    key = dict_keys[i]
+                    val = value[key]
+                    self.add_variable(str(key), val, parent_item)
 
-                        # Retrieve the just added item from parent_item.
-                        # Assuming the new item is appended at the end:
-                        row_count = parent_item.rowCount()
-                        if row_count > 0:
-                            # Get the last row's first column item (variable name column)
-                            complex_key_item = parent_item.child(row_count - 1, 0)
-                            if complex_key_item:
-                                # Store (parent_dict, key_index) as metadata on this item
-                                complex_key_item.setData((value, idx),
-                                                         Qt.ItemDataRole.UserRole + 2)
+                if end_index < total:
+                    load_more_item = QStandardItem(
+                        f"... Load More ({end_index}/{total})")
+                    load_more_item.setEditable(False)
+                    load_more_item.setForeground(Qt.GlobalColor.blue)
+                    load_more_item.setData({
+                        'is_load_more': True,
+                        'container_type': 'dict',
+                        'value_ref': value,
+                        'offset': end_index,
+                        'visited': visited
+                    }, Qt.ItemDataRole.UserRole)
+                    parent_item.appendRow([
+                        load_more_item,
+                        QStandardItem(), QStandardItem(), QStandardItem(),
+                        QStandardItem()
+                    ])
+            # if isinstance(value, list):
+            #     for i, elem in enumerate(value):
+            #         self.add_variable(f"[{i}]", elem, parent_item)
+            # elif isinstance(value, dict):
+            #     for idx, (key, val) in enumerate(value.items()):
+            #         if isinstance(key, (str, int, float, bool, tuple)):
+            #             # Basic types: display key as string
+            #             display_key = str(key)
+            #             obj_ref = val if self.can_expand(val) else None
+            #             self.add_variable(display_key, val, parent_item,
+            #                               obj_ref=obj_ref)
+            #         else:
+            #             # Object keys: display with type info
+            #             display_key = f"Key: {str(key)}"
+            #             obj_ref = val if self.can_expand(val) else None
+            #
+            #             # Use existing logic to add variable
+            #             self.add_variable(display_key, val, parent_item,
+            #                               obj_ref=obj_ref)
+            #
+            #             # Retrieve the just added item from parent_item.
+            #             # Assuming the new item is appended at the end:
+            #             row_count = parent_item.rowCount()
+            #             if row_count > 0:
+            #                 # Get the last row's first column item (variable name column)
+            #                 complex_key_item = parent_item.child(row_count - 1, 0)
+            #                 if complex_key_item:
+            #                     # Store (parent_dict, key_index) as metadata on this item
+            #                     complex_key_item.setData((value, idx),
+            #                                              Qt.ItemDataRole.UserRole + 2)
 
 
 
@@ -552,31 +613,31 @@ class VariableViewer(QMainWindow):
 
         menu.exec(self.tree_view.viewport().mapToGlobal(position))
 
-    def copy_object_handle(self, indexes: List[QModelIndex]) -> None:
+    def handle_double_click(self, index):
         """
-        Copies a snippet that retrieves a complex dictionary key by index, e.g.:
-            [k for k in c.object_key_dict.keys()][2]
+        Detects double-click on a 'Load More' item and loads the next batch.
         """
-        snippets: List[str] = []
-        for idx in indexes:
-            if idx.column() != 0:
-                continue
-            item = self.model.itemFromIndex(idx)
-            parent_item = item.parent()
-            # Resolve parent's path: e.g. "c.object_key_dict"
-            if parent_item:
-                parts = self.model.compute_multiline_path_for_item(parent_item)
-                parent_path = parts[-1] if parts else self.model.alias
+        item = self.model.itemFromIndex(index)
+        if not item:
+            return
+
+        user_data = item.data(Qt.ItemDataRole.UserRole)
+        if user_data and isinstance(user_data, dict) and user_data.get('is_load_more'):
+            parent = item.parent()
+            if parent is None:
+                parent = self.model.invisibleRootItem()
+                self.model.removeRow(item.row())
             else:
-                parent_path = self.model.alias
+                parent.removeRow(item.row())
 
-            # The item's row is used to index into the parent's .keys().
-            key_index = item.row()
-            snippet = f"[k for k in {parent_path}.keys()][{key_index}]"
-            snippets.append(snippet)
-
-        if snippets:
-            QApplication.clipboard().setText("\n".join(snippets))
+            container_type = user_data['container_type']
+            value_ref = user_data['value_ref']
+            offset = user_data['offset']
+            visited = user_data['visited']
+            self.load_children(parent, value_ref, visited, start_index=offset)
+        else:
+            # Otherwise, do nothing special.
+            pass
 
     def export_variable(self, index):
         """

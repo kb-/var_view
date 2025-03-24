@@ -1,4 +1,4 @@
 # var_view/__init__.py
-from .variable_viewer.paginated_viewer import PaginatedVariableViewer as VariableViewer
+from .variable_viewer.viewer import VariableViewer
 
 __all__ = ['VariableViewer']

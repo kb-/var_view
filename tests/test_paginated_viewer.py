@@ -1,7 +1,7 @@
 # tests/test_paginated_viewer.py
 import pytest
 from PyQt6.QtCore import Qt
-from variable_viewer.paginated_viewer import PaginatedVariableViewer
+from variable_viewer.viewer import VariableViewer
 
 
 # Create a dummy data source with a long list attribute.
@@ -19,7 +19,7 @@ def dummy_data_source():
 @pytest.fixture
 def viewer(qtbot, dummy_data_source):
     # Instantiate the paginated viewer with our dummy data.
-    v = PaginatedVariableViewer(dummy_data_source, "dummy", "var_view/plugins")
+    v = VariableViewer(dummy_data_source, "dummy", "var_view/plugins")
     qtbot.addWidget(v)
     v.show()
     return v
