@@ -3,7 +3,7 @@ import pytest
 import pyautogui  # pip install pyautogui
 from PyQt6.QtTest import QTest
 from PyQt6.QtCore import Qt, QPoint
-from var_view.variable_viewer.paginated_viewer import PaginatedVariableViewer as VariableViewer
+from var_view.variable_viewer.viewer import VariableViewer
 from main import AppDataSource
 
 
