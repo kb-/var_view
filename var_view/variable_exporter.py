@@ -111,6 +111,43 @@ class VariableExporter:
                 f"Failed to export '{name}': {e}"
             )
 
+    def export_variables(self, variables_dict):
+        """
+        Export multiple variables to the selected file format.
+        """
+        try:
+            file_path, _ = QFileDialog.getSaveFileName(
+                self.parent,
+                "Export Variables",
+                "variables",
+                "NumPy Archive (*.npz);;HDF5 (*.h5);;MATLAB File (*.mat);;Text File (*.txt)"
+            )
+            if not file_path:  # user cancelled
+                return
+
+            _, ext = os.path.splitext(file_path)
+            ext = ext.lower()
+
+            if ext == ".npz":
+                self.save_as_npz_batch(variables_dict, file_path)
+            elif ext == ".h5":
+                self.save_as_h5_batch(variables_dict, file_path)
+            elif ext == ".mat":
+                self.save_as_mat_batch(variables_dict, file_path)
+            elif ext == ".txt":
+                self.save_as_txt_batch(variables_dict, file_path)
+            else:
+                QMessageBox.warning(
+                    self.parent, "Export Error",
+                    f"Unsupported format for multiple variables: {ext}"
+                )
+        except Exception as e:
+            QMessageBox.critical(
+                self.parent, "Export Error",
+                f"Failed to export variables: {e}"
+            )
+
+
     def _unsupported_format(self, *_) -> None:
         """Show a warning for unknown file extensions."""
         QMessageBox.warning(self.parent, "Export Error", "Unsupported format")

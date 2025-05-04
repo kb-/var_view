@@ -10,6 +10,8 @@ from PIL import Image
 import pickle
 import collections as cl  # Added import for collections.deque
 
+from PyQt6.QtWidgets import QFileDialog
+
 from var_view.variable_exporter import VariableExporter
 
 
@@ -696,3 +698,31 @@ def test_export_with_missing_permission(exporter, tmp_file, sample_data, mocker)
     file_path = str(tmp_file) + ".npy"
     with pytest.raises(PermissionError, match="No write permission"):
         exporter.save_as_npy_single(sample_data["numpy_array"], file_path)
+
+
+def test_export_variables_npz(exporter, tmp_path, sample_data, monkeypatch):
+    # Prepare a simple batch dict with only numpy + torch to avoid custom-object issues
+    batch = {
+        "arr": sample_data["numpy_array"],
+        "tens": sample_data["torch_tensor"],
+    }
+
+    # Point the file dialog to a tmp .npz file
+    out_file = tmp_path / "batch_export.npz"
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName",
+        lambda *args, **kwargs: (str(out_file), None)
+    )
+
+    # Invoke batch export
+    exporter.export_variables(batch)
+
+    # File must exist
+    assert out_file.exists()
+
+    # Validate contents
+    loaded = np.load(str(out_file), allow_pickle=True)
+    # numpy array round-trip
+    assert np.allclose(loaded["arr"], batch["arr"])
+    # torch → numpy round-trip
+    assert np.allclose(loaded["tens"], batch["tens"].cpu().numpy())
