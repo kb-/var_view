@@ -11,7 +11,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QAction, QStandardItem
 from PyQt6.QtCore import Qt, QObject, QModelIndex
-from icecream import ic
 
 from var_view.variable_exporter import VariableExporter
 from var_view.plugin_manager import PluginManager  # Import PluginManager
@@ -305,7 +304,6 @@ class VariableViewer(QMainWindow):
         """
         Recursively loads child attributes/elements for dictionaries, lists, namedtuples, or objects.
         """
-        ic(value)
         if visited is None:
             visited = set()
 
@@ -612,6 +610,34 @@ class VariableViewer(QMainWindow):
         menu.addAction(copy_path_action)
 
         menu.exec(self.tree_view.viewport().mapToGlobal(position))
+
+    def copy_object_handle(self, indexes: List[QModelIndex]) -> None:
+        """
+        Copies a snippet to the clipboard that retrieves a complex dictionary key by index.
+
+        E.g., [k for k in c.object_key_dict.keys()][2]
+        """
+        from PyQt6.QtWidgets import QApplication
+        snippets = []
+        for idx in indexes:
+            if idx.column() != 0:
+                continue
+            item = self.model.itemFromIndex(idx)
+            parent_item = item.parent()
+            if parent_item:
+                parent_path_parts = self.model.compute_multiline_path_for_item(
+                    parent_item)
+                parent_path = parent_path_parts[
+                    -1] if parent_path_parts else self.model.alias
+            else:
+                parent_path = self.model.alias
+
+            key_index = item.row()
+            snippet = f"[k for k in {parent_path}.keys()][{key_index}]"
+            snippets.append(snippet)
+
+        if snippets:
+            QApplication.clipboard().setText("\n".join(snippets))
 
     def handle_double_click(self, index):
         """

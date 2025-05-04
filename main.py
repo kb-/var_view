@@ -145,7 +145,7 @@ def main():
     # Instantiate the PaginatedVariableViewer with the data source.
     # This viewer includes pagination for any container level.
     viewer = VariableViewer(data_source, "c", "var_view/plugins")
-    # viewer.add_console("c")  # Integrate the console
+    viewer.add_console("c")  # Integrate the console
     viewer.show()
 
     def update_variables_after_show():

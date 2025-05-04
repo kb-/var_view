@@ -1,4 +1,5 @@
 version = 1
+revision = 1
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.12' and platform_machine == 'aarch64' and sys_platform == 'linux'",
@@ -240,21 +241,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c6/9e/ce420a7bd4c5092abea7cdc939f401dffa3936be586b316a771f8a1591fe/hdf5storage-0.1.19.tar.gz", hash = "sha256:7a1a6badf546e8942f4d22d598aee14021796bc28918519c9687a6abb0eeef86", size = 100839 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ec/29/ed9f2df3e77400b5312787b4ade31791e8eca91a39a7ccd80677490f4ea5/hdf5storage-0.1.19-py2.py3-none-any.whl", hash = "sha256:5d49b4a1c6e3047d2709045b0b918a943903117b8015e959f4a51d95b49ea204", size = 53631 },
-]
-
-[[package]]
-name = "icecream"
-version = "2.1.4"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "asttokens" },
-    { name = "colorama" },
-    { name = "executing" },
-    { name = "pygments" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/78/5e/9f41831f032b9ce456c919c4989952562fcc2b0eb8c038080c24ce20d6cd/icecream-2.1.4.tar.gz", hash = "sha256:58755e58397d5350a76f25976dee7b607f5febb3c6e1cddfe6b1951896e91573", size = 15872 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/57/1d/43ef7a6875190e6745ffcd1b12c7aaa7efed082897401e311ee1cd75c8b2/icecream-2.1.4-py3-none-any.whl", hash = "sha256:7bb715f69102cae871b3a361c3b656536db02cfcadac9664c673581cac4df4fd", size = 14782 },
 ]
 
 [[package]]
@@ -1380,7 +1366,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "icecream" },
     { name = "numpy" },
     { name = "opencv-python" },
     { name = "pyautogui" },
@@ -1408,7 +1393,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "icecream", specifier = ">=2.1.4" },
     { name = "numpy", specifier = "<2.0.0" },
     { name = "opencv-python", specifier = ">=4.10.0.84" },
     { name = "pyautogui", specifier = ">=0.9.54" },

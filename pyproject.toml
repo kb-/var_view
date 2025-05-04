@@ -26,7 +26,6 @@ dev = [
     "opencv-python>=4.10.0.84",
     "pytest-cov>=6.0.0",
     "pyautogui>=0.9.54",
-    "icecream>=2.1.4",
 ]
 
 [tool.uv.sources]
