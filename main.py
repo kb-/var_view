@@ -22,6 +22,10 @@ class AppDataSource:
     def __init__(self):
         # Some simple variables
         self.list_var = [1, 2, 3, 4, 5]
+        self.csv_compatible_example = {
+            "value": self.list_var,
+            "value_squared": [x * x for x in self.list_var],
+        }
         self.nested_dict = {"a": 1, "b": {"c": 2, "d": 3}}
         self.numpy_array = np.random.rand(100, 100)
         self.torch_tensor = torch.rand(10, 10)

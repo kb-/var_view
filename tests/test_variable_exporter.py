@@ -800,3 +800,19 @@ def test_export_variables_csv_via_dialog(tmp_path, exporter, monkeypatch):
     assert list(df.columns) == ["foo", "bar"]
     assert df["foo"].tolist() == [7, 8]
     assert df["bar"].tolist() == [9, 10]
+
+
+def test_save_as_csv_cleaned_header(tmp_path, exporter):
+    # simulate what the UI gives you: one key whose name includes [] quotes
+    raw_name = 'csv_compatible_example["value"]'
+    data = { raw_name: [1, 2, 3, 4, 5] }
+    out = tmp_path / "clean_header.csv"
+    exporter.save_as_csv(data, str(out))
+
+    # read back with pandas
+    import pandas as pd
+    df = pd.read_csv(str(out))
+
+    # should have cleaned the column name to just "value"
+    assert list(df.columns) == ["value"]
+    assert df["value"].tolist() == [1, 2, 3, 4, 5]

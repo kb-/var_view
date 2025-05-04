@@ -211,66 +211,77 @@ class VariableExporter:
 
     # — CSV ———————————————————————————————————————————————
 
-    def save_as_csv(self, value_or_dict: Any, file_path: str) -> None:
-        """
-        Export either:
-          - a single array/tensor/list → to CSV via numpy.savetxt
-          - a dict of 1D sequences    → to CSV via pandas DataFrame
-        Requires NumPy, and pandas only if exporting a dict.
-        """
-        try:
-            import numpy as np
-        except ModuleNotFoundError:
-            raise RuntimeError("NumPy is required for CSV export")
+    import re
 
-        # Helper: convert a scalar sequence/tensor to a 2D numpy array
-        def _to_array(v):
+    def save_as_csv(self, value_or_dict, file_path):
+        """
+        CSV export rules
+        ────────────────────────────────────────────────────────────
+        • Dict → pandas.DataFrame → to_csv(index=False)
+            – Works for 1‑column or multi‑column dicts
+            – Automatically *unwraps* a single‑key outer dict whose value is
+              itself a dict of sequences (what the viewer sends).
+            – Cleans column names like  csv_compatible_example["value"]  →  value
+        • Bare list / ndarray / torch.Tensor → numpy.savetxt (no header)
+        """
+        import numpy as np
+
+        def _to_array(obj):
+            """list / ndarray / torch.Tensor → (N,1) ndarray"""
             try:
                 import torch
+                is_tensor = hasattr(obj, "cpu") and hasattr(obj, "numpy")
             except ModuleNotFoundError:
-                torch = None  # type: ignore
+                torch = None
+                is_tensor = False
 
-            if torch is not None and torch.is_tensor(v):
-                arr = v.cpu().numpy()
-            elif isinstance(v, np.ndarray):
-                arr = v
-            elif isinstance(v, (list, tuple)):
-                arr = np.array(v)
+            if is_tensor:
+                arr = obj.cpu().numpy()
+            elif isinstance(obj, np.ndarray):
+                arr = obj
+            elif isinstance(obj, (list, tuple)):
+                arr = np.array(obj)
             else:
-                raise TypeError(f"Unsupported type for CSV export: {type(v)}")
+                raise TypeError(f"Unsupported type for CSV export: {type(obj)}")
 
-            # Ensure 2D for savetxt: (N,) → (N,1)
-            if arr.ndim == 1:
+            if arr.ndim == 1:  # (N,) → (N,1)
                 arr = arr[:, np.newaxis]
             return arr
 
-        # --- Multi-variable case: dict → DataFrame
+        # ── 1) unwrap  {"outer": inner_dict}  from the viewer ───────────────
+        if isinstance(value_or_dict, dict) and len(value_or_dict) == 1:
+            inner = next(iter(value_or_dict.values()))
+            if isinstance(inner, dict):
+                value_or_dict = inner
+
+        # ── 2) dict‑of‑sequences  → pandas DataFrame ────────────────────────
         if isinstance(value_or_dict, dict):
-            try:
-                import pandas as pd
-            except ModuleNotFoundError:
-                raise RuntimeError("pandas is required for CSV export of multiple variables")
-
-            cols: Dict[str, list] = {}
+            import pandas as pd
+            cols = {}
             length = None
-            for name, raw in value_or_dict.items():
-                arr = _to_array(raw)
+            for raw_name, raw_val in value_or_dict.items():
+                # Clean a viewer‑generated name like  foo["bar"]  →  bar
+                clean_name = (
+                    raw_name.split('["')[-1][:-2]  # quick split‑strip
+                    if raw_name.endswith('"]') and '["' in raw_name
+                    else raw_name
+                )
+
+                arr = _to_array(raw_val)
                 if arr.shape[1] != 1:
-                    raise ValueError(f"Variable '{name}' must be 1D to export together")
-                col = arr.ravel().tolist()
+                    raise ValueError(
+                        f"Variable '{raw_name}' must be 1‑D for CSV export")
+                seq = arr.ravel().tolist()
+
                 if length is None:
-                    length = len(col)
-                elif len(col) != length:
-                    raise ValueError("All variables must have the same length")
-                cols[name] = col
+                    length = len(seq)
+                elif len(seq) != length:
+                    raise ValueError("All columns must have the same length")
 
-            df = pd.DataFrame(cols)
-            df.to_csv(file_path, index=False)
+                cols[clean_name] = seq
+
+            pd.DataFrame(cols).to_csv(file_path, index=False)
             return
-
-        # --- Single-variable case
-        arr = _to_array(value_or_dict)
-        np.savetxt(file_path, arr, delimiter=",")
 
     # — HDF5 (.h5) —————————————————————————————————————————
 
