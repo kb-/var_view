@@ -120,7 +120,7 @@ class VariableExporter:
                 self.parent,
                 "Export Variables",
                 "variables",
-                "NumPy Archive (*.npz);;HDF5 (*.h5);;MATLAB File (*.mat);;Text File (*.txt)"
+                "NumPy Archive (*.npz);;NumPy Array (*.npy);;CSV (*.csv);;HDF5 (*.h5);;MATLAB File (*.mat);;PNG Image (*.png);;Text File (*.txt)"
             )
             if not file_path:  # user cancelled
                 return
@@ -130,6 +130,10 @@ class VariableExporter:
 
             if ext == ".npz":
                 self.save_as_npz_batch(variables_dict, file_path)
+            if ext == ".npy":
+                self.save_as_npy_single(variables_dict, file_path)
+            elif ext == ".csv":
+                self.save_as_csv(variables_dict, file_path)
             elif ext == ".h5":
                 self.save_as_h5_batch(variables_dict, file_path)
             elif ext == ".mat":
@@ -207,26 +211,66 @@ class VariableExporter:
 
     # — CSV ———————————————————————————————————————————————
 
-    def save_as_csv(self, value: Any, file_path: str) -> None:
+    def save_as_csv(self, value_or_dict: Any, file_path: str) -> None:
         """
-        Save a 2D array or tensor to CSV. Requires NumPy.
+        Export either:
+          - a single array/tensor/list → to CSV via numpy.savetxt
+          - a dict of 1D sequences    → to CSV via pandas DataFrame
+        Requires NumPy, and pandas only if exporting a dict.
         """
         try:
             import numpy as np
         except ModuleNotFoundError:
             raise RuntimeError("NumPy is required for CSV export")
 
-        try:
-            import torch
-        except ModuleNotFoundError:
-            torch = None  # type: ignore
+        # Helper: convert a scalar sequence/tensor to a 2D numpy array
+        def _to_array(v):
+            try:
+                import torch
+            except ModuleNotFoundError:
+                torch = None  # type: ignore
 
-        if isinstance(value, np.ndarray):
-            np.savetxt(file_path, value, delimiter=',')
-        elif torch is not None and torch.is_tensor(value):
-            np.savetxt(file_path, value.cpu().numpy(), delimiter=',')
-        else:
-            raise TypeError("Unsupported type for CSV export.")
+            if torch is not None and torch.is_tensor(v):
+                arr = v.cpu().numpy()
+            elif isinstance(v, np.ndarray):
+                arr = v
+            elif isinstance(v, (list, tuple)):
+                arr = np.array(v)
+            else:
+                raise TypeError(f"Unsupported type for CSV export: {type(v)}")
+
+            # Ensure 2D for savetxt: (N,) → (N,1)
+            if arr.ndim == 1:
+                arr = arr[:, np.newaxis]
+            return arr
+
+        # --- Multi-variable case: dict → DataFrame
+        if isinstance(value_or_dict, dict):
+            try:
+                import pandas as pd
+            except ModuleNotFoundError:
+                raise RuntimeError("pandas is required for CSV export of multiple variables")
+
+            cols: Dict[str, list] = {}
+            length = None
+            for name, raw in value_or_dict.items():
+                arr = _to_array(raw)
+                if arr.shape[1] != 1:
+                    raise ValueError(f"Variable '{name}' must be 1D to export together")
+                col = arr.ravel().tolist()
+                if length is None:
+                    length = len(col)
+                elif len(col) != length:
+                    raise ValueError("All variables must have the same length")
+                cols[name] = col
+
+            df = pd.DataFrame(cols)
+            df.to_csv(file_path, index=False)
+            return
+
+        # --- Single-variable case
+        arr = _to_array(value_or_dict)
+        np.savetxt(file_path, arr, delimiter=",")
 
     # — HDF5 (.h5) —————————————————————————————————————————
 

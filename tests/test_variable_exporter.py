@@ -1,5 +1,5 @@
 # tests/test_variable_exporter.py
-
+import pandas as pd
 import pytest
 import numpy as np
 import torch
@@ -10,7 +10,7 @@ from PIL import Image
 import pickle
 import collections as cl  # Added import for collections.deque
 
-from PyQt6.QtWidgets import QFileDialog
+from PyQt6.QtWidgets import QFileDialog, QApplication
 
 from var_view.variable_exporter import VariableExporter
 
@@ -700,29 +700,103 @@ def test_export_with_missing_permission(exporter, tmp_file, sample_data, mocker)
         exporter.save_as_npy_single(sample_data["numpy_array"], file_path)
 
 
-def test_export_variables_npz(exporter, tmp_path, sample_data, monkeypatch):
-    # Prepare a simple batch dict with only numpy + torch to avoid custom-object issues
-    batch = {
-        "arr": sample_data["numpy_array"],
-        "tens": sample_data["torch_tensor"],
-    }
+def test_save_as_npz_batch_direct(tmp_path, exporter, batch_sample_data):
+    out = tmp_path / "batch.npz"
+    # calls save_as_npz_batch without QFileDialog
+    exporter.save_as_npz_batch(batch_sample_data, str(out))
+    assert out.exists()
 
-    # Point the file dialog to a tmp .npz file
-    out_file = tmp_path / "batch_export.npz"
+    loaded = np.load(str(out), allow_pickle=True)
+    # spot-check a couple of keys
+    assert np.allclose(loaded["numpy_array"], batch_sample_data["numpy_array"])
+    assert np.allclose(loaded["torch_tensor"], batch_sample_data["torch_tensor"].cpu().numpy())
+
+
+def test_save_as_h5_batch_direct(tmp_path, exporter, batch_sample_data):
+    out = tmp_path / "batch.h5"
+    exporter.save_as_h5_batch(batch_sample_data, str(out))
+    assert out.exists()
+
+    with h5py.File(str(out), "r") as f:
+        # For numpy arrays & tensors you get datasets
+        assert "numpy_array" in f and np.allclose(f["numpy_array"][:], batch_sample_data["numpy_array"])
+        assert "torch_tensor" in f and np.allclose(f["torch_tensor"][:], batch_sample_data["torch_tensor"].cpu().numpy())
+        # For simple types, check attributes or datasets
+        assert f.attrs["string_var"] == batch_sample_data["string_var"]
+
+
+def test_save_as_mat_batch_direct(tmp_path, exporter, batch_sample_data):
+    out = tmp_path / "batch.mat"
+    exporter.save_as_mat_batch(batch_sample_data, str(out))
+    assert out.exists()
+
+    loaded = hdf5storage.loadmat(str(out))
+    assert "numpy_array" in loaded and np.allclose(loaded["numpy_array"], batch_sample_data["numpy_array"])
+    assert "torch_tensor" in loaded and np.allclose(loaded["torch_tensor"], batch_sample_data["torch_tensor"].cpu().numpy())
+
+
+def test_save_as_txt_batch_direct(tmp_path, exporter, batch_sample_data):
+    out = tmp_path / "batch.txt"
+    exporter.save_as_txt_batch(batch_sample_data, str(out))
+    assert out.exists()
+
+    content = out.read_text(encoding="utf-8")
+    # each variable should have a "# Variable: name" header and its repr or decoded form
+    for key, val in batch_sample_data.items():
+        header = f"# Variable: {key}\n"
+        assert header in content
+        # for bytes and bytearray, accept either raw repr or decoded string
+        if isinstance(val, (bytes, bytearray)):
+            decoded = val.decode('utf-8')
+            assert (str(val) in content) or (decoded in content)
+        else:
+            assert str(val) in content
+
+
+def test_save_as_csv_multiple_list(tmp_path, exporter):
+    # dict of equal-length Python lists → 2-column CSV
+    data = {
+        "col1": [10, 20, 30],
+        "col2": [0.1, 0.2, 0.3],
+    }
+    csv_file = tmp_path / "multi_list.csv"
+    exporter.save_as_csv(data, str(csv_file))
+
+    df = pd.read_csv(str(csv_file))
+    assert list(df.columns) == ["col1", "col2"]
+    assert df["col1"].tolist() == [10, 20, 30]
+    assert pytest.approx(df["col2"].tolist()) == [0.1, 0.2, 0.3]
+
+
+def test_save_as_csv_multiple_ndarray(tmp_path, exporter):
+    # dict of 1-D numpy arrays → 2-column CSV
+    a = np.array([1, 2, 3])
+    b = np.array([4, 5, 6])
+    data = {"a": a, "b": b}
+    csv_file = tmp_path / "multi_nd.csv"
+    exporter.save_as_csv(data, str(csv_file))
+
+    df = pd.read_csv(str(csv_file))
+    assert list(df.columns) == ["a", "b"]
+    assert df["a"].tolist() == [1, 2, 3]
+    assert df["b"].tolist() == [4, 5, 6]
+
+
+def test_export_variables_csv_via_dialog(tmp_path, exporter, monkeypatch):
+    # bypass the Qt dialog by patching the same dialog class imported in the module
+    import var_view.variable_exporter as mod
+    out = tmp_path / "via_export.csv"
     monkeypatch.setattr(
-        QFileDialog, "getSaveFileName",
-        lambda *args, **kwargs: (str(out_file), None)
+        mod.QFileDialog, "getSaveFileName",
+        lambda *args, **kwargs: (str(out), "CSV (*.csv)")
     )
 
-    # Invoke batch export
-    exporter.export_variables(batch)
-
-    # File must exist
-    assert out_file.exists()
-
-    # Validate contents
-    loaded = np.load(str(out_file), allow_pickle=True)
-    # numpy array round-trip
-    assert np.allclose(loaded["arr"], batch["arr"])
-    # torch → numpy round-trip
-    assert np.allclose(loaded["tens"], batch["tens"].cpu().numpy())
+    vars_dict = {
+        "foo": [7, 8],
+        "bar": np.array([9, 10]),
+    }
+    exporter.export_variables(vars_dict)
+    df = pd.read_csv(str(out))
+    assert list(df.columns) == ["foo", "bar"]
+    assert df["foo"].tolist() == [7, 8]
+    assert df["bar"].tolist() == [9, 10]
