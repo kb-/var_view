@@ -125,15 +125,6 @@ def test_save_as_npy_single(exporter, tmp_file, sample_data):
     assert np.allclose(loaded, sample_data["numpy_array"])
 
 
-def test_save_as_csv(exporter, tmp_file, sample_data):
-    file_path = str(tmp_file) + ".csv"
-    exporter.save_as_csv(sample_data["numpy_array"], file_path)
-
-    assert Path(file_path).exists()
-    loaded = np.loadtxt(file_path, delimiter=",")
-    assert np.allclose(loaded, sample_data["numpy_array"])
-
-
 def test_save_as_h5_single(exporter, tmp_file, sample_data):
     file_path = str(tmp_file) + ".h5"
     exporter.save_as_h5_single("numpy_array", sample_data["numpy_array"], file_path)

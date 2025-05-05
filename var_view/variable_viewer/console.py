@@ -44,13 +44,13 @@ class ConsoleManager:
             kernel = self.kernel_manager.kernel  # 'kernel' is the shell
 
             if not hasattr(kernel, 'shell'):
-                logger.error("Kernel does not have a 'shell' attribute.")
+                logger.exception("Kernel does not have a 'shell' attribute.")
                 return
 
             shell = kernel.shell
 
             if not hasattr(shell, 'events'):
-                logger.error("Kernel shell does not have an 'events' attribute.")
+                logger.exception("Kernel shell does not have an 'events' attribute.")
                 return
 
             shell.push({self.alias: self.data_source})
@@ -66,7 +66,7 @@ class ConsoleManager:
                 try:
                     # Extract the executed cell's source code
                     cell = result.info.raw_cell.strip()
-                    logger.debug(f"Executed command: {cell}")
+                    logger.debug("Executed command: %s", cell)
 
                     # Check if the command starts with f"{alias}."
                     if cell.startswith(f"{self.alias}."):
@@ -79,26 +79,28 @@ class ConsoleManager:
 
                             # Check if the parameter already exists in the viewer
                             if self.refresh_callback.has_variable(full_param_name):
-                                logger.debug(
-                                    f"Parameter '{full_param_name}' already exists. No refresh needed.")
+                                logger.debug("Parameter '%s' already exists. No "
+                                             "refresh needed.", full_param_name)
                             else:
-                                logger.info(
-                                    f"Parameter '{full_param_name}' does not exist. Refreshing view.")
+                                logger.info("Parameter '%s' does not exist. "
+                                            "Refreshing view.", full_param_name)
                                 self.refresh_callback()
                         else:
-                            logger.debug(f"Could not parse parameter from command: {cell}")
+                            logger.debug("Could not parse parameter from command: %s",
+                                         cell)
                     else:
-                        logger.debug(f"Command does not start with '{self.alias}.': {cell}")
+                        logger.debug("Command does not start with '%s': %s",
+                                     self.alias, cell)
                 except Exception as e:
-                    logger.error(f"Error during conditional refresh: {e}")
+                    logger.exception("Error during conditional refresh: %s", e)
 
             # Register the event handler with post_run_cell
             try:
                 shell.events.register('post_run_cell', refresh_after_execute)
                 logger.info("Registered 'post_run_cell' event handler.")
             except AttributeError as e:
-                logger.error(f"Failed to register event handler: {e}")
+                logger.exception("Failed to register event handler: %s", e)
 
-            logger.info(f"Console window opened and '{self.alias}' injected.")
+            logger.info("Console window opened and '%s' injected.", self.alias)
         except Exception as e:
-            logger.error(f"Failed to set up console: {e}\n{traceback.format_exc()}")
+            logger.exception("Failed to set up console: %s", e)

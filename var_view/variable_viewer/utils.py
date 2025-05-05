@@ -82,5 +82,5 @@ def format_bytes(bytes_size):
             bytes_size /= 1024
         return f"{bytes_size:.2f} PB"
     except Exception as e:
-        logger.error(f"Error formatting bytes: {e}")
+        logger.exception("Error formatting bytes")
         return ""

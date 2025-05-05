@@ -20,7 +20,6 @@ from var_view.variable_viewer.utils import infer_type_hint_general, format_bytes
     VariableRepresentation
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.WARNING)
 
 
 class ObjectRef:
@@ -105,14 +104,14 @@ class VariableViewer(QMainWindow):
             import var_view.built_in_plugins
             self.plugin_manager.load_plugins_from_package(var_view.built_in_plugins)
         except Exception as e:
-            logger.error(f"Error loading built-in plugins: {e}")
+            logger.exception("Error loading built-in plugins: %s", e)
 
         # Load app-specific plugins
         if app_plugin_dir:
             try:
                 self.plugin_manager.load_plugins_from_directory(app_plugin_dir)
             except Exception as e:
-                logger.error(f"Error loading app-specific plugins: {e}")
+                logger.exception(f"Error loading app-specific plugins: %s", e)
 
     def resize_all_columns(self):
         """Resize all columns to fit their contents."""
@@ -241,7 +240,7 @@ class VariableViewer(QMainWindow):
                     placeholder, QStandardItem(), QStandardItem(), QStandardItem(), QStandardItem()
                 ])
         except Exception as e:
-            logger.error(f"Error adding variable '{name}': {e}")
+            logger.exception("Error adding variable '%s': %s", name, e)
             parent_item.appendRow([
                 QStandardItem(name),
                 QStandardItem("Error"),
@@ -294,15 +293,16 @@ class VariableViewer(QMainWindow):
                         # After loading children, resize columns to fit new content
                         self.resize_all_columns()
                 else:
-                    logger.warning(f"No children to expand for item: {item.text()}")
+                    logger.warning(f"No children to expand for item: %s", item.text())
             else:
                 logger.warning("Item not found in model.")
         except Exception as e:
-            logger.error(f"Error handling expand: {e}")
+            logger.error(f"Error handling expand: %s", e)
 
     def load_children(self, parent_item, value, visited=None, start_index=0):
         """
-        Recursively loads child attributes/elements for dictionaries, lists, namedtuples, or objects.
+        Recursively loads child attributes/elements for dictionaries, lists,
+        namedtuples, or objects.
         """
         if visited is None:
             visited = set()
@@ -310,7 +310,7 @@ class VariableViewer(QMainWindow):
         try:
             # Avoid cyclic references
             if id(value) in visited:
-                logger.debug(f"Cyclic reference for '{parent_item.text()}'.")
+                logger.debug("Cyclic reference for '%s'.", parent_item.text())
                 self.add_variable("<Cyclic Reference>", "<Cyclic Reference>",
                                   parent_item, lazy_load=False)
                 return
@@ -426,7 +426,7 @@ class VariableViewer(QMainWindow):
                             if not callable(attr_val):
                                 self.add_variable(attr, attr_val, parent_item)
                         except Exception as sub_e:
-                            logger.error(f"Error accessing {attr}: {sub_e}")
+                            logger.exception("Error accessing %s: %s", attr, sub_e)
                             self.add_variable(attr, f"<Error: {sub_e}>", parent_item,
                                               lazy_load=False)
             # Group 3: Handle objects with `__dict__`
@@ -441,7 +441,7 @@ class VariableViewer(QMainWindow):
                         attr_val = getattr(value, slot)
                         self.add_variable(slot, attr_val, parent_item)
                     except AttributeError:
-                        logger.debug(f"Slot {slot} not accessible.")
+                        logger.debug(f"Slot %s not accessible.", slot)
             # Group 5: Reflect on objects without `__dict__` or `__slots__`
             else:
                 for attr in dir(value):
@@ -451,7 +451,7 @@ class VariableViewer(QMainWindow):
                             if not callable(attr_val):
                                 self.add_variable(attr, attr_val, parent_item)
                         except Exception as e:
-                            logger.error(f"Error accessing {attr}: {e}")
+                            logger.exception("Error accessing %s: %s", attr, e)
                             self.add_variable(attr, f"<Error: {e}>", parent_item,
                                               lazy_load=False)
 
@@ -459,10 +459,11 @@ class VariableViewer(QMainWindow):
             self.resize_all_columns()
 
         except Exception as e:
-            logger.error(f"Error loading children: {e}")
+            logger.error(f"Error loading children: %S", e)
 
     def can_expand(self, value):
-        """Check if object can be expanded (dict, list, namedtuple, QObject, or has __dict__ or __slots__)."""
+        """Check if object can be expanded (dict, list, namedtuple, QObject, or has
+        __dict__ or __slots__)."""
         return (
                 isinstance(value, (dict, list, QObject)) or
                 (isinstance(value, tuple) and hasattr(value, '_fields')) or  # named tuple
@@ -488,7 +489,7 @@ class VariableViewer(QMainWindow):
                 return str(len(vars(value)))
             return ""
         except Exception as e:
-            logger.error(f"Error calculating size: {e}")
+            logger.error(f"Error calculating size: %s", e)
             return ""
 
     @staticmethod
@@ -527,7 +528,7 @@ class VariableViewer(QMainWindow):
                 return val_str[: max_len - 3] + "..."
             return val_str
         except Exception as e:
-            logger.error(f"Error in format_value: {e}")
+            logger.error(f"Error in format_value: %s", e)
             return "<Error>"
 
     def calculate_memory_usage(self, value) -> str:
@@ -553,7 +554,7 @@ class VariableViewer(QMainWindow):
             # If not built-in or handled by plugin, return ""
             return ""
         except Exception as e:
-            logger.error(f"Error calculating memory usage: {e}")
+            logger.error(f"Error calculating memory usage: %s", e)
             return ""
 
     def show_context_menu(self, position):
@@ -716,14 +717,16 @@ class VariableViewer(QMainWindow):
                 if value is not None:
                     self.unload_and_reload_item(item, value, path)
                 else:
-                    logger.warning(f"Variable '{path}' is unavailable.")
+                    logger.warning("Variable '%s' is unavailable.", path)
 
     def unload_and_reload_item(self, item, value, path):
         """
-        Clear an item's children and reload them, updating Type, Size, Value, Memory columns.
+        Clear an item's children and reload them, updating Type, Size, Value,
+        Memory columns.
         """
         try:
-            logger.debug(f"Unloading and reloading item '{path}' with value: {value}")
+            logger.debug("Unloading and reloading item '%s' with value: %s",
+                         path, value)
 
             # Check if a plugin handler exists
             handler = self.plugin_manager.get_handler_for_type(value)
@@ -766,18 +769,18 @@ class VariableViewer(QMainWindow):
                 formatted_value)
             self.model.itemFromIndex(item.index().sibling(item.row(), 4)).setText(
                 memory_usage if memory_usage else "")
-            logger.info(f"Updated columns for '{path}'.")
+            logger.info("Updated columns for '%s'.", path)
 
             # Clear existing children
             item.removeRows(0, item.rowCount())
-            logger.info(f"Unloaded children for '{path}'.")
+            logger.info("Unloaded children for '%s'.", path)
 
             # Reload children
             if self.can_expand(value):
                 self.load_children(item, value)
-                logger.info(f"Reloaded children for '{path}'.")
+                logger.info("Reloaded children for '%s'.", path)
         except Exception as e:
-            logger.error(f"Error unloading/reloading '{path}': {e}")
+            logger.exception("Error unloading/reloading '%s': %s", path, e)
 
     def resolve_variable(self, path):
         """
@@ -822,7 +825,7 @@ class VariableViewer(QMainWindow):
                     return None
             return value
         except Exception as e:
-            logger.error(f"Error resolving variable path '{path}': {e}")
+            logger.exception("Error resolving variable path '%s': %s", path, e)
             return None
 
     def resolve_item_path(self, item):
@@ -881,7 +884,7 @@ class VariableViewer(QMainWindow):
         if paths:
             clipboard = QApplication.clipboard()
             clipboard.setText("\n".join(paths))
-            logger.debug(f"Copied to clipboard: {paths}")
+            logger.debug("Copied to clipboard: %s", paths)
 
     def has_variable(self, path: str) -> bool:
         """

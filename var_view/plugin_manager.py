@@ -23,23 +23,24 @@ class PluginManager:
         """
         Load built-in plugins from a given package.
         """
-        logger.debug(f"Loading built-in plugins from package: {package.__name__}")
+        logger.debug("Loading built-in plugins from package: %s", package.__name__)
         for loader, module_name, is_pkg in pkgutil.iter_modules(package.__path__):
             full_module_name = f"{package.__name__}.{module_name}"
             try:
                 module = importlib.import_module(full_module_name)
                 self._register_plugin(module)
-                logger.info(f"Loaded built-in plugin: {full_module_name}")
+                logger.info("Loaded built-in plugin: %s", full_module_name)
             except Exception as e:
-                logger.error(f"Failed to load built-in plugin '{full_module_name}': {e}")
+                logger.exception("Failed to load built-in plugin '%s': %s",
+                                 full_module_name, e)
 
     def load_plugins_from_directory(self, directory, namespace='app_plugins'):
         """
         Load app-specific plugins from a specified directory.
         """
-        logger.debug(f"Loading app-specific plugins from directory: {directory}")
+        logger.debug("Loading app-specific plugins from directory: %s", directory)
         if not os.path.isdir(directory):
-            logger.warning(f"Plugin directory '{directory}' does not exist.")
+            logger.warning("Plugin directory '%s' does not exist.", directory)
             return
 
         # Add the directory to sys.path to allow module imports
@@ -53,9 +54,10 @@ class PluginManager:
                 try:
                     module = importlib.import_module(module_name)
                     self._register_plugin(module)
-                    logger.info(f"Loaded app-specific plugin: {full_module_name}")
+                    logger.info("Loaded app-specific plugin: %s", full_module_name)
                 except Exception as e:
-                    logger.error(f"Failed to load app-specific plugin '{full_module_name}': {e}")
+                    logger.exception("Failed to load app-specific plugin '%s': %s",
+                                     full_module_name, e)
 
     def _register_plugin(self, module):
         """
@@ -64,9 +66,10 @@ class PluginManager:
         for attribute_name in dir(module):
             attribute = getattr(module, attribute_name)
             if isinstance(attribute, type) and issubclass(attribute, PluginBase) and attribute is not PluginBase:
+                logger.debug("Registered plugin handler from '%s.%s'",
+                             module.__name__, attribute_name)
                 plugin_instance = attribute()
                 plugin_instance.register_handlers(self.register_type_handler)
-                logger.debug(f"Registered plugin handler from '{module.__name__}.{attribute_name}'")
 
     def register_type_handler(self, data_type, handler):
         """
@@ -74,7 +77,7 @@ class PluginManager:
         Handler should return a VariableRepresentation instance (or string fallback).
         """
         self.type_handlers[data_type] = handler
-        logger.debug(f"Registered type handler for '{data_type}'")
+        logger.debug("Registered type handler for '%s'", data_type)
 
     def get_handler_for_type(self, data):
         """
