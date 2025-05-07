@@ -10,8 +10,6 @@ from PIL import Image
 import pickle
 import collections as cl  # Added import for collections.deque
 
-from PyQt6.QtWidgets import QFileDialog, QApplication
-
 from var_view.variable_exporter import VariableExporter
 
 
@@ -21,7 +19,8 @@ class Engine:
         self.horsepower = horsepower
         self.type = type_
 
-    def start(self):
+    @staticmethod
+    def start():
         return "Engine started."
 
 
@@ -71,15 +70,15 @@ def sample_data():
         "numpy_array": np.random.rand(10, 10),
         "torch_tensor": torch.rand(10, 10),
         "string_var": "Hello, World!",
-        "bytes_var": b"byte string",                   # Added for bytes type testing
-        "bytearray_var": bytearray(b"byte array"),     # Added for bytearray type testing
+        "bytes_var": b"byte string",  # Added for bytes type testing
+        "bytearray_var": bytearray(b"byte array"),  # Added for bytearray type testing
         "nested_list": [[1, 2], [3, 4]],
         "dict_var": {"key1": 1, "key2": "value"},
-        "set_var": {1, 2, 3},                           # Added for set type testing
-        "frozenset_var": frozenset([4, 5, 6]),         # Added for frozenset type testing
-        "bool_var": True,                               # Added for bool type testing
-        "complex_var": 3 + 4j,                          # Added for complex type testing
-        "custom_obj": person_john,                      # Custom object with nested and cyclic references
+        "set_var": {1, 2, 3},  # Added for set type testing
+        "frozenset_var": frozenset([4, 5, 6]),  # Added for frozenset type testing
+        "bool_var": True,  # Added for bool type testing
+        "complex_var": 3 + 4j,  # Added for complex type testing
+        "custom_obj": person_john,  # Custom object with nested and cyclic references
     }
 
 
@@ -95,14 +94,15 @@ def batch_sample_data():
         "numpy_array": np.random.rand(5, 5),
         "torch_tensor": torch.rand(5, 5),
         "string_var": "Batch Export Test",
-        "bytes_var": b"batch byte string",                   # Added for bytes type testing
-        "bytearray_var": bytearray(b"batch byte array"),     # Added for bytearray type testing
+        "bytes_var": b"batch byte string",  # Added for bytes type testing
+        "bytearray_var": bytearray(b"batch byte array"),
+        # Added for bytearray type testing
         "nested_list": [[5, 6], [7, 8]],
         "dict_var": {"keyA": "A", "keyB": "B"},
-        "set_var": {7, 8, 9},                                 # Added for set type testing
-        "frozenset_var": frozenset([10, 11, 12]),            # Added for frozenset type testing
-        "bool_var": False,                                    # Added for bool type testing
-        "complex_var": 1 - 1j,                                # Added for complex type testing
+        "set_var": {7, 8, 9},  # Added for set type testing
+        "frozenset_var": frozenset([10, 11, 12]),  # Added for frozenset type testing
+        "bool_var": False,  # Added for bool type testing
+        "complex_var": 1 - 1j,  # Added for complex type testing
         "custom_obj": person_jane,
     }
 
@@ -149,15 +149,14 @@ def test_save_as_mat_single(exporter, tmp_file, sample_data):
         loaded = hdf5storage.loadmat(file_path)
 
         # Check if the variable exists in the file
-        assert variable_name in loaded, f"Variable '{variable_name}' not found in .mat file."
+        assert variable_name in loaded, \
+            f"Variable '{variable_name}' not found in .mat file."
 
         # Additional validation for basic types
         if isinstance(value, np.ndarray):
             assert np.allclose(loaded[variable_name], value)
         elif torch.is_tensor(value):
             assert np.allclose(loaded[variable_name], value.cpu().numpy())
-
-
 
 
 def test_save_as_png(exporter, tmp_file, sample_data):
@@ -198,18 +197,21 @@ def test_save_as_txt_bytes(exporter, tmp_file, sample_data):
     assert Path(file_path).exists()
     with open(file_path, "r") as f:
         loaded = f.read()
-        expected = f"# Variable: bytes_var\n{sample_data['bytes_var'].decode('utf-8')}\n"
+        expected = (f"# Variable: bytes_var"
+                    f"\n{sample_data['bytes_var'].decode('utf-8')}\n")
         assert loaded == expected
 
 
 def test_save_as_txt_bytearray(exporter, tmp_file, sample_data):
     file_path = str(tmp_file) + "_bytearray.txt"
-    exporter.save_as_txt_single("bytearray_var", sample_data["bytearray_var"], file_path)
+    exporter.save_as_txt_single("bytearray_var", sample_data["bytearray_var"],
+                                file_path)
 
     assert Path(file_path).exists()
     with open(file_path, "r") as f:
         loaded = f.read()
-        expected = f"# Variable: bytearray_var\n{sample_data['bytearray_var'].decode('utf-8')}\n"
+        expected = (f"# Variable: bytearray_var"
+                    f"\n{sample_data['bytearray_var'].decode('utf-8')}\n")
         assert loaded == expected
 
 
@@ -228,7 +230,8 @@ def test_save_as_txt_set(exporter, tmp_file, sample_data):
 
 def test_save_as_txt_frozenset(exporter, tmp_file, sample_data):
     file_path = str(tmp_file) + "_frozenset.txt"
-    exporter.save_as_txt_single("frozenset_var", sample_data["frozenset_var"], file_path)
+    exporter.save_as_txt_single("frozenset_var", sample_data["frozenset_var"],
+                                file_path)
 
     assert Path(file_path).exists()
     with open(file_path, "r") as f:
@@ -277,8 +280,10 @@ def test_export_unsupported_type(exporter, tmp_file):
     expected_header = f"# Variable: {variable_name}\n"
     expected_content = f"{str(unsupported_value)}\n"
     assert loaded.startswith(
-        expected_header), f"Expected header '{expected_header}' not found in exported content."
-    assert expected_content in loaded, f"Expected content '{expected_content}' not found in exported content."
+        expected_header), \
+        f"Expected header '{expected_header}' not found in exported content."
+    assert expected_content in loaded, \
+        f"Expected content '{expected_content}' not found in exported content."
 
 
 def test_torch_tensor_as_npy_single(exporter, tmp_file, sample_data):
@@ -348,7 +353,8 @@ def test_batch_export_npz(exporter, tmp_file, batch_sample_data):
             # ---------------------------------------
             # Fallback for custom objects like `Person`.
             # The code might store them as a dict (via __dict__ or custom logic)
-            # OR as a simple string (e.g., "<test_variable_exporter.Person object at 0x...>")
+            # OR as a simple string
+            # (e.g., "<test_variable_exporter.Person object at 0x...>")
             # So let's handle both possibilities:
             # ---------------------------------------
             actual = loaded[key].tolist()
@@ -381,7 +387,8 @@ def test_batch_export_h5(exporter, tmp_file, batch_sample_data):
             if isinstance(value, (np.ndarray, torch.Tensor)):
                 if key in f:
                     loaded = f[key][:]
-                    expected = value if isinstance(value, np.ndarray) else value.cpu().numpy()
+                    expected = value if isinstance(value,
+                                                   np.ndarray) else value.cpu().numpy()
                     assert np.allclose(loaded, expected)
                 else:
                     # Unsupported types are saved as attributes
@@ -473,14 +480,15 @@ def test_batch_export_txt(exporter, tmp_file, batch_sample_data):
     for key, value in batch_sample_data.items():
         # 1) Ensure the header is present
         expected_header = f"# Variable: {key}\n"
-        assert expected_header in content, f"Header for '{key}' not found in:\n{content}"
+        assert expected_header in content, \
+            f"Header for '{key}' not found in:\n{content}"
 
         # 2) Prepare possible text outputs for each data type
         possible_matches = []
 
         if isinstance(value, (list, tuple, dict)):
-            # The test used to expect the exact Python string repr with a trailing newline
-            # e.g., '[[5, 6], [7, 8]]\n'
+            # The test used to expect the exact Python string repr with a trailing
+            # newline e.g., '[[5, 6], [7, 8]]\n'
             possible_matches.append(f"{str(value)}\n")
 
         elif isinstance(value, np.ndarray):
@@ -514,7 +522,8 @@ def test_batch_export_txt(exporter, tmp_file, batch_sample_data):
             possible_matches.append(f"{str(value)}\n")
 
         else:
-            # For unsupported or custom objects, the original logic used str(value) + "\n"
+            # For unsupported or custom objects,
+            # the original logic used str(value) + "\n"
             possible_matches.append(f"{str(value)}\n")
 
         # 3) Check if at least one possible match is in the content
@@ -526,7 +535,6 @@ def test_batch_export_txt(exporter, tmp_file, batch_sample_data):
             )
 
 
-
 # -------------------------
 # Custom Object Export Tests
 # -------------------------
@@ -534,7 +542,8 @@ def test_batch_export_txt(exporter, tmp_file, batch_sample_data):
 # Note: VariableExporter does NOT have a save_as_pickle_batch method.
 # These tests are skipped unless you implement pickle export functionality.
 
-@pytest.mark.skip(reason="Pickle export methods are not implemented in VariableExporter.")
+@pytest.mark.skip(
+    reason="Pickle export methods are not implemented in VariableExporter.")
 def test_batch_export_pickle(exporter, tmp_file, batch_sample_data):
     file_path = str(tmp_file) + ".pkl"
     exporter.save_as_pickle_batch(batch_sample_data, file_path)
@@ -550,7 +559,8 @@ def test_batch_export_pickle(exporter, tmp_file, batch_sample_data):
                 assert loaded[key] == value
 
 
-@pytest.mark.skip(reason="Pickle export methods are not implemented in VariableExporter.")
+@pytest.mark.skip(
+    reason="Pickle export methods are not implemented in VariableExporter.")
 def test_export_custom_object(exporter, tmp_file, sample_data):
     file_path = str(tmp_file) + ".pkl"
     custom_obj = sample_data["custom_obj"]
@@ -569,7 +579,8 @@ def test_export_custom_object(exporter, tmp_file, sample_data):
         assert loaded_obj.car.owner == loaded_obj  # Check cyclic reference
 
 
-@pytest.mark.skip(reason="Pickle export methods are not implemented in VariableExporter.")
+@pytest.mark.skip(
+    reason="Pickle export methods are not implemented in VariableExporter.")
 def test_export_cyclic_reference(exporter, tmp_file):
     # Create cyclic reference
     a = {}
@@ -585,15 +596,16 @@ def test_export_cyclic_reference(exporter, tmp_file):
         assert loaded_ref["self"] is loaded_ref  # Check cyclic reference preserved
 
 
-@pytest.mark.skip(reason="Pickle export methods are not implemented in VariableExporter.")
+@pytest.mark.skip(
+    reason="Pickle export methods are not implemented in VariableExporter.")
 def test_batch_export_with_custom_objects(exporter, tmp_file, batch_sample_data):
     file_path_npz = str(tmp_file) + "_batch.npz"
     exporter.save_as_npz_batch(batch_sample_data, file_path_npz)
     assert Path(file_path_npz).exists()
     loaded_npz = np.load(file_path_npz, allow_pickle=True)
     assert "custom_obj" in loaded_npz
-    # Depending on exporter implementation, custom_obj might be saved as string or pickled
-    # Here, assuming it's converted to string
+    # Depending on exporter implementation, custom_obj might be saved as string or
+    # pickled Here, assuming it's converted to string
     assert loaded_npz["custom_obj"].tolist() == str(batch_sample_data["custom_obj"])
 
     # Similarly, test other batch formats with custom objects
@@ -700,7 +712,8 @@ def test_save_as_npz_batch_direct(tmp_path, exporter, batch_sample_data):
     loaded = np.load(str(out), allow_pickle=True)
     # spot-check a couple of keys
     assert np.allclose(loaded["numpy_array"], batch_sample_data["numpy_array"])
-    assert np.allclose(loaded["torch_tensor"], batch_sample_data["torch_tensor"].cpu().numpy())
+    assert np.allclose(loaded["torch_tensor"],
+                       batch_sample_data["torch_tensor"].cpu().numpy())
 
 
 def test_save_as_h5_batch_direct(tmp_path, exporter, batch_sample_data):
@@ -710,8 +723,11 @@ def test_save_as_h5_batch_direct(tmp_path, exporter, batch_sample_data):
 
     with h5py.File(str(out), "r") as f:
         # For numpy arrays & tensors you get datasets
-        assert "numpy_array" in f and np.allclose(f["numpy_array"][:], batch_sample_data["numpy_array"])
-        assert "torch_tensor" in f and np.allclose(f["torch_tensor"][:], batch_sample_data["torch_tensor"].cpu().numpy())
+        assert "numpy_array" in f and np.allclose(f["numpy_array"][:],
+                                                  batch_sample_data["numpy_array"])
+        assert "torch_tensor" in f and np.allclose(f["torch_tensor"][:],
+                                                   batch_sample_data[
+                                                       "torch_tensor"].cpu().numpy())
         # For simple types, check attributes or datasets
         assert f.attrs["string_var"] == batch_sample_data["string_var"]
 
@@ -722,8 +738,11 @@ def test_save_as_mat_batch_direct(tmp_path, exporter, batch_sample_data):
     assert out.exists()
 
     loaded = hdf5storage.loadmat(str(out))
-    assert "numpy_array" in loaded and np.allclose(loaded["numpy_array"], batch_sample_data["numpy_array"])
-    assert "torch_tensor" in loaded and np.allclose(loaded["torch_tensor"], batch_sample_data["torch_tensor"].cpu().numpy())
+    assert "numpy_array" in loaded and np.allclose(loaded["numpy_array"],
+                                                   batch_sample_data["numpy_array"])
+    assert "torch_tensor" in loaded and np.allclose(loaded["torch_tensor"],
+                                                    batch_sample_data[
+                                                        "torch_tensor"].cpu().numpy())
 
 
 def test_save_as_txt_batch_direct(tmp_path, exporter, batch_sample_data):
@@ -796,12 +815,11 @@ def test_export_variables_csv_via_dialog(tmp_path, exporter, monkeypatch):
 def test_save_as_csv_cleaned_header(tmp_path, exporter):
     # simulate what the UI gives you: one key whose name includes [] quotes
     raw_name = 'csv_compatible_example["value"]'
-    data = { raw_name: [1, 2, 3, 4, 5] }
+    data = {raw_name: [1, 2, 3, 4, 5]}
     out = tmp_path / "clean_header.csv"
     exporter.save_as_csv(data, str(out))
 
     # read back with pandas
-    import pandas as pd
     df = pd.read_csv(str(out))
 
     # should have cleaned the column name to just "value"

@@ -1,5 +1,4 @@
 # var_view/variable_viewer/console.py
-import traceback
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout
 from qtconsole.rich_jupyter_widget import RichJupyterWidget
@@ -91,8 +90,8 @@ class ConsoleManager:
                     else:
                         logger.debug("Command does not start with '%s': %s",
                                      self.alias, cell)
-                except Exception as e:
-                    logger.exception("Error during conditional refresh: %s", e)
+                except Exception as err:
+                    logger.exception("Error during conditional refresh: %s", err)
 
             # Register the event handler with post_run_cell
             try:

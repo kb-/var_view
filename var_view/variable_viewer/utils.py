@@ -1,9 +1,8 @@
 # var_view/variable_viewer/utils.py
 
-import sys
 import logging
-import re
 from collections.abc import Iterable
+from typing import Sized
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +35,7 @@ class VariableRepresentation:
             parts.append(str(self.value_summary))
         return ", ".join(parts) if parts else "N/A"
 
+
 def infer_type_hint_general(data) -> str:
     """
     Dynamically infers a type hint for the given input data.
@@ -54,7 +54,7 @@ def infer_type_hint_general(data) -> str:
 
     elif isinstance(data, Iterable) and not isinstance(data, (str, bytes)):
         try:
-            if len(data) == 0:
+            if isinstance(data, Sized) and len(data) == 0:
                 return type(data).__name__  # e.g. "list"
         except TypeError:
             # Some iterables don't support len()
@@ -67,6 +67,7 @@ def infer_type_hint_general(data) -> str:
     else:
         # For a non-iterable or str/bytes, just return the type name
         return type(data).__name__
+
 
 def format_bytes(bytes_size):
     """
@@ -81,6 +82,6 @@ def format_bytes(bytes_size):
                 return f"{bytes_size:.2f} {u}"
             bytes_size /= 1024
         return f"{bytes_size:.2f} PB"
-    except Exception as e:
+    except Exception:
         logger.exception("Error formatting bytes")
         return ""

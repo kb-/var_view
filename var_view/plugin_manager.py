@@ -4,12 +4,15 @@ import importlib
 import pkgutil
 import os
 import logging
+import sys
 from collections import OrderedDict
+from typing import Callable, Any
 
 from var_view.plugin_base import PluginBase
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
+
 
 class PluginManager:
     """
@@ -17,7 +20,7 @@ class PluginManager:
     """
 
     def __init__(self):
-        self.type_handlers = OrderedDict()  # Maintains insertion order for overriding
+        self.type_handlers: OrderedDict[type, Callable[[Any], Any]] = OrderedDict()
 
     def load_plugins_from_package(self, package):
         """
@@ -44,8 +47,8 @@ class PluginManager:
             return
 
         # Add the directory to sys.path to allow module imports
-        if directory not in os.sys.path:
-            os.sys.path.insert(0, directory)
+        if directory not in sys.path:
+            sys.path.insert(0, directory)
 
         for filename in os.listdir(directory):
             if filename.endswith(".py") and not filename.startswith("_"):
@@ -65,13 +68,14 @@ class PluginManager:
         """
         for attribute_name in dir(module):
             attribute = getattr(module, attribute_name)
-            if isinstance(attribute, type) and issubclass(attribute, PluginBase) and attribute is not PluginBase:
+            if (isinstance(attribute, type) and issubclass(attribute, PluginBase)
+                    and attribute is not PluginBase):
                 logger.debug("Registered plugin handler from '%s.%s'",
                              module.__name__, attribute_name)
                 plugin_instance = attribute()
                 plugin_instance.register_handlers(self.register_type_handler)
 
-    def register_type_handler(self, data_type, handler):
+    def register_type_handler(self, data_type: type, handler: Callable[[Any], Any]):
         """
         Register a custom handler for a specific data type.
         Handler should return a VariableRepresentation instance (or string fallback).

@@ -42,8 +42,12 @@ class VariableViewer(QMainWindow):
       - Includes a console integration for interactive usage
     """
 
-    def __init__(self, data_source, alias="data_source", app_plugin_dir=None, batch_size=100):
+    def __init__(self, data_source, alias="data_source", app_plugin_dir=None,
+                 batch_size=100):
         super().__init__()
+        self.console_manager = None
+        self.model = None
+        self.tree_view = None
         self.data_source = data_source
         self.alias = alias
         self.batch_size = batch_size
@@ -224,7 +228,8 @@ class VariableViewer(QMainWindow):
 
             item_var.setData(safe_drag_path, Qt.ItemDataRole.UserRole + 3)
 
-            # Always store the object reference (wrapped in ObjectRef) for expandable values (except lists)
+            # Always store the object reference (wrapped in ObjectRef) for expandable
+            # values (except lists)
             if self.can_expand(value):
                 if not isinstance(obj_ref, ObjectRef):
                     obj_ref = ObjectRef(value)
@@ -237,7 +242,8 @@ class VariableViewer(QMainWindow):
                 placeholder = QStandardItem("Loading...")
                 placeholder.setEditable(False)
                 item_var.appendRow([
-                    placeholder, QStandardItem(), QStandardItem(), QStandardItem(), QStandardItem()
+                    placeholder, QStandardItem(), QStandardItem(), QStandardItem(),
+                    QStandardItem()
                 ])
         except Exception as e:
             logger.exception("Error adding variable '%s': %s", name, e)
@@ -267,7 +273,8 @@ class VariableViewer(QMainWindow):
 
     def handle_expand(self, index):
         """
-        Called when a tree item is expanded; checks for a placeholder row to load children.
+        Called when a tree item is expanded; checks for a placeholder row to load
+        children.
         """
         try:
             item = self.model.itemFromIndex(index)
@@ -277,7 +284,6 @@ class VariableViewer(QMainWindow):
                 if isinstance(obj_ref, ObjectRef):
                     value = obj_ref.obj
                 else:
-                    value = obj_ref
                     # Resolve the variable path as usual
                     path = self.resolve_item_path(item)
                     value = self.resolve_variable(path)
@@ -380,38 +386,6 @@ class VariableViewer(QMainWindow):
                         QStandardItem(), QStandardItem(), QStandardItem(),
                         QStandardItem()
                     ])
-            # if isinstance(value, list):
-            #     for i, elem in enumerate(value):
-            #         self.add_variable(f"[{i}]", elem, parent_item)
-            # elif isinstance(value, dict):
-            #     for idx, (key, val) in enumerate(value.items()):
-            #         if isinstance(key, (str, int, float, bool, tuple)):
-            #             # Basic types: display key as string
-            #             display_key = str(key)
-            #             obj_ref = val if self.can_expand(val) else None
-            #             self.add_variable(display_key, val, parent_item,
-            #                               obj_ref=obj_ref)
-            #         else:
-            #             # Object keys: display with type info
-            #             display_key = f"Key: {str(key)}"
-            #             obj_ref = val if self.can_expand(val) else None
-            #
-            #             # Use existing logic to add variable
-            #             self.add_variable(display_key, val, parent_item,
-            #                               obj_ref=obj_ref)
-            #
-            #             # Retrieve the just added item from parent_item.
-            #             # Assuming the new item is appended at the end:
-            #             row_count = parent_item.rowCount()
-            #             if row_count > 0:
-            #                 # Get the last row's first column item (variable name column)
-            #                 complex_key_item = parent_item.child(row_count - 1, 0)
-            #                 if complex_key_item:
-            #                     # Store (parent_dict, key_index) as metadata on this item
-            #                     complex_key_item.setData((value, idx),
-            #                                              Qt.ItemDataRole.UserRole + 2)
-
-
 
             elif isinstance(value, tuple) and hasattr(value, '_fields'):  # named tuple
                 for field in value._fields:
@@ -461,17 +435,20 @@ class VariableViewer(QMainWindow):
         except Exception as e:
             logger.error(f"Error loading children: %S", e)
 
-    def can_expand(self, value):
+    @staticmethod
+    def can_expand(value):
         """Check if object can be expanded (dict, list, namedtuple, QObject, or has
         __dict__ or __slots__)."""
         return (
                 isinstance(value, (dict, list, QObject)) or
-                (isinstance(value, tuple) and hasattr(value, '_fields')) or  # named tuple
+                (isinstance(value, tuple) and hasattr(value, '_fields')) or  # named
+                # tuple
                 hasattr(value, '__dict__') or
                 hasattr(value, '__slots__')
         )
 
-    def calculate_size(self, value) -> str:
+    @staticmethod
+    def calculate_size(value) -> str:
         """
         Calculate size for the "Size" column: length for strings/iterables,
         shape for shape-based objects, etc.
@@ -533,9 +510,9 @@ class VariableViewer(QMainWindow):
 
     def calculate_memory_usage(self, value) -> str:
         """
-        Calculate memory usage of a variable.
-        Only display memory for built-in data types and types handled by built_in_plugins.
-        For pointers or complex objects, return "".
+        Calculate memory usage of a variable. Only display memory for built-in data
+        types and types handled by built_in_plugins. For pointers or complex objects,
+        return "".
         """
         try:
             # Define built-in types
@@ -913,7 +890,8 @@ class VariableViewer(QMainWindow):
 
     def add_console(self, alias="data_source"):
         """
-        Opens an IPython/Qt console in a separate window, injecting self.data_source under the given alias.
+        Opens an IPython/Qt console in a separate window, injecting self.data_source
+        under the given alias.
         """
         # Initialize ConsoleManager with a callback to refresh the view
         self.console_manager = ConsoleManager(self.data_source, alias, self)
