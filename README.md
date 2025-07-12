@@ -4,10 +4,13 @@ Var View is a PyQt-based viewer for exploring Python variables interactively. It
 
 ## Installation
 
-Use `uv` to install the dependencies:
+Install the required system libraries and Python packages:
 
 ```bash
+apt-get update
+apt-get install -y libegl1 libxslt1.1 libxkbfile1
 uv sync
+uv pip install -e .
 ```
 
 ## Running the example
@@ -22,10 +25,11 @@ This launches a simple window that displays variables from a small data source. 
 
 ## Testing
 
-Run the test suite with `pytest`:
+Run the test suite with `pytest`. In a headless environment you may
+need to provide a virtual display and use the Qt "offscreen" platform:
 
 ```bash
-uv run -m pytest -q
+QT_QPA_PLATFORM=offscreen xvfb-run -a uv run -m pytest -q
 ```
 
 
