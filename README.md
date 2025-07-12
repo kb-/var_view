@@ -7,6 +7,7 @@ Var View is a PyQt-based viewer for exploring Python variables interactively. It
 Install the required system libraries and Python packages:
 
 ```bash
+pip install uv
 apt-get update
 apt-get install -y libegl1 libxslt1.1 libxkbfile1 xvfb
 uv sync
