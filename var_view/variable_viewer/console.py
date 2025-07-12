@@ -1,6 +1,6 @@
 # var_view/variable_viewer/console.py
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QPushButton
 from qtconsole.rich_jupyter_widget import RichJupyterWidget
 from qtconsole.inprocess import QtInProcessKernelManager
 import logging
@@ -17,6 +17,8 @@ class ConsoleManager:
         self.console_window = None
         self.kernel_manager = None
         self.kernel_client = None
+        self.console_widget = None
+        self.failed_lines = []
         self.setup_console()
 
     def setup_console(self):
@@ -31,11 +33,15 @@ class ConsoleManager:
             console = RichJupyterWidget()
             console.kernel_manager = self.kernel_manager
             console.kernel_client = self.kernel_client
+            self.console_widget = console
 
             self.console_window = QWidget()
             self.console_window.setWindowTitle("Console")
             layout = QVBoxLayout(self.console_window)
             layout.addWidget(console)
+            clear_btn = QPushButton("Clear Failed")
+            clear_btn.clicked.connect(self.clear_failed)
+            layout.addWidget(clear_btn)
             self.console_window.resize(600, 960)
             self.console_window.show()
 
@@ -66,6 +72,9 @@ class ConsoleManager:
                     # Extract the executed cell's source code
                     cell = result.info.raw_cell.strip()
                     logger.debug("Executed command: %s", cell)
+
+                    if not result.success:
+                        self.failed_lines.append(result.execution_count)
 
                     # Check if the command starts with f"{alias}."
                     if cell.startswith(f"{self.alias}."):
@@ -103,3 +112,25 @@ class ConsoleManager:
             logger.info("Console window opened and '%s' injected.", self.alias)
         except Exception as e:
             logger.exception("Failed to set up console: %s", e)
+
+    def clear_failed(self):
+        """Remove failed commands from history and clear the display."""
+        try:
+            shell = self.kernel_manager.kernel.shell
+            hist = shell.history_manager
+            session_number = hist.session_number
+            for line in self.failed_lines:
+                hist.db.execute(
+                    "DELETE FROM history WHERE session=? AND line=?",
+                    (session_number, line),
+                )
+                hist.db.execute(
+                    "DELETE FROM output_history WHERE session=? AND line=?",
+                    (session_number, line),
+                )
+            hist.db.commit()
+            self.failed_lines.clear()
+            if self.console_widget is not None:
+                self.console_widget.clear()
+        except Exception as err:
+            logger.exception("Failed to clear failed history: %s", err)
