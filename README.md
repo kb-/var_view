@@ -15,7 +15,7 @@ uv sync
 An example application is available in `main.py`:
 
 ```bash
-python main.py
+uv run main.py
 ```
 
 This launches a simple window that displays variables from a small data source. Right-click items in the tree to view additional actions such as exporting to different formats.
