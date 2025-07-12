@@ -4,10 +4,10 @@ Var View is a PyQt-based viewer for exploring Python variables interactively. It
 
 ## Installation
 
-Use `pip` to install the package in editable mode while developing:
+Use `uv` to install the package in editable mode while developing:
 
 ```bash
-pip install -e .
+uv pip install -e .
 ```
 
 ## Running the example
