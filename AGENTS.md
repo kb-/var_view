@@ -1,6 +1,6 @@
 # Repository guidelines
 
-- Run `pytest -q` before committing to ensure all tests pass.
+- Run `uv run -m pytest -q` before committing to ensure all tests pass.
 - Add tests for new features when possible.
 - Keep commit messages short and in the present tense.
 
