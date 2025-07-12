@@ -8,7 +8,7 @@ Install the required system libraries and Python packages:
 
 ```bash
 apt-get update
-apt-get install -y libegl1 libxslt1.1 libxkbfile1
+apt-get install -y libegl1 libxslt1.1 libxkbfile1 xvfb
 uv sync
 uv pip install -e .
 ```

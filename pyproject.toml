@@ -47,3 +47,6 @@ torch = "var_view.built_in_plugins.torch_plugin:TorchPlugin"
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["var_view", "variable_viewer"]
