@@ -25,7 +25,7 @@ This launches a simple window that displays variables from a small data source. 
 Run the test suite with `pytest`:
 
 ```bash
-pytest -q
+uv run -m pytest -q
 ```
 
 
