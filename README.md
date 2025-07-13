@@ -27,11 +27,17 @@ This launches a simple window that displays variables from a small data source. 
 ## Testing
 
 Run the test suite with `pytest`. In a headless environment you may
-need to provide a virtual display and use the Qt "offscreen" platform:
+need to provide a virtual display and use the Qt "offscreen" platform.
+Ensure `DISPLAY` is set and xvfb is running so PyQt can create windows:
 
 ```bash
 export DISPLAY=:99
-QT_QPA_PLATFORM=offscreen xvfb-run -a uv run -m pytest -q
+QT_QPA_PLATFORM=offscreen \
+    xvfb-run --server-args="-screen 0 1280x1024x24" \
+    uv run -m pytest -vv
+
+If tests appear to hang, print the environment with `env` to confirm
+that `DISPLAY` is set correctly.
 ```
 
 If the full suite takes too long, run just the lightweight model tests:

@@ -24,5 +24,8 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
+          set -x
           export DISPLAY=:99
-          xvfb-run -a uv run -m pytest -q
+          env | sort
+          xvfb-run --server-args="-screen 0 1280x1024x24" \
+            uv run -m pytest -vv --durations=10
