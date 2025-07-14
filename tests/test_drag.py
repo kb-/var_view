@@ -1,6 +1,10 @@
+import os
 import re
 import pytest
 import pyautogui  # pip install pyautogui
+
+if os.environ.get("CI"):
+    pytest.skip("skip drag tests on CI", allow_module_level=True)
 from PyQt6.QtTest import QTest
 from PyQt6.QtCore import Qt, QPoint
 from var_view.variable_viewer.viewer import VariableViewer

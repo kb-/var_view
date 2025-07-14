@@ -396,10 +396,9 @@ def test_show_context_menu_triggers(viewer):
     """
     from PyQt6.QtCore import QPoint
 
-    # Replace show_context_menu with a mock
+    # Replace show_context_menu with a mock and reconnect the signal
+    viewer.tree_view.customContextMenuRequested.disconnect()
     viewer.show_context_menu = MagicMock()
-
-    # Ensure the signal is connected to our mocked method
     viewer.tree_view.customContextMenuRequested.connect(viewer.show_context_menu)
 
     # Create an arbitrary point to emit the signal

@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libxslt1.1 libxkbfile1 xvfb
+      - name: Install Python deps
+        run: |
+          pip install uv
+          uv sync
+          uv pip install -e .
+      - name: Run tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          set -x
+          export DISPLAY=:99
+          env | sort
+          xvfb-run --server-args="-screen 0 1280x1024x24" \
+            uv run -m pytest -vv --durations=10
